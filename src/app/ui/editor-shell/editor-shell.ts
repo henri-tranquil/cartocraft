@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, HostListener, inject, OnInit, signal } from '@angular/core';
 import { EditorFacade } from '../../application/editor-facade';
 import { SaveStatus } from '../../application/auto-save';
 import { ClimatePanel } from '../climate-panel/climate-panel';
@@ -8,7 +8,7 @@ import { MapList } from '../map-list/map-list';
 import { NewMapDialog, NewMapRequest } from '../new-map-dialog/new-map-dialog';
 import { ToolPanel, toolForKey } from '../tool-panel/tool-panel';
 
-type SectionId = 'relief' | 'climate' | 'water' | 'names';
+import { formatUrlState, parseUrlState, SectionId, UrlState } from '../url-state';
 
 interface SectionDef {
   readonly id: SectionId;
@@ -210,7 +210,21 @@ export class EditorShell implements OnInit {
   protected readonly activeShort = computed(() => this.active().short);
   protected readonly saveLabel = computed(() => SAVE_STATUS_LABELS[this.facade.saveStatus()]);
 
+  /** The URL is written only once the map it names is open (a reload must not erase it first). */
+  private readonly started = signal(false);
+
   constructor() {
+    // Address bar ⇄ state: map, section, relief tool, climate view.
+    effect(() => {
+      if (!this.started()) return;
+      const hash = formatUrlState({
+        mapId: this.facade.currentMapId() ?? undefined,
+        section: this.activeSection(),
+        tool: this.facade.activeTool(),
+        view: this.facade.viewMode(),
+      });
+      if (location.hash !== hash) history.replaceState(history.state, '', hash);
+    });
     // Only the Relief panel edits the terrain; elsewhere a click just moves the map.
     effect(() => this.facade.setEditingEnabled(this.activeSection() === 'relief'));
     // The latitude ruler belongs to the Climate panel: leaving it closes the ruler.
@@ -220,7 +234,23 @@ export class EditorShell implements OnInit {
   }
 
   ngOnInit(): void {
-    void this.facade.startUp();
+    const fromUrl = parseUrlState(location.hash);
+    this.applyUrlState(fromUrl);
+    void this.facade.startUp(fromUrl.mapId).finally(() => this.started.set(true));
+  }
+
+  /** The user edited the address (or followed a link) without reloading. */
+  @HostListener('window:hashchange')
+  protected onHashChange(): void {
+    const state = parseUrlState(location.hash);
+    this.applyUrlState(state);
+    if (state.mapId && state.mapId !== this.facade.currentMapId()) void this.facade.openMap(state.mapId);
+  }
+
+  private applyUrlState(state: UrlState): void {
+    if (state.section && SECTIONS.some((s) => s.id === state.section && s.available)) this.activeSection.set(state.section);
+    if (state.tool) this.facade.selectTool(state.tool);
+    if (state.view) this.facade.setViewMode(state.view);
   }
 
   protected create(request: NewMapRequest): void {

@@ -8,19 +8,19 @@ describe('snowpack', () => {
   });
 
   it('melts a little even in a month averaging below 0 °C (mild days)', () => {
-    expect(positiveDegrees(-2)).toBeGreaterThan(0.5);
+    expect(positiveDegrees(-2)).toBeGreaterThan(0.3);
     expect(positiveDegrees(15)).toBeCloseTo(15, 1);
   });
 
   it('gives the same result through its lookup tables', () => {
-    expect(snowStepDeci(100, -35, 50)).toBeCloseTo(snowStep(100, -3.5, 50), 3);
+    expect(snowStepDeci(100, -35, 50, 2)).toBeCloseTo(snowStep(100, -3.5, 50, 2), 3);
   });
 
   it('accumulates in winter and melts by degree-days in spring', () => {
     let swe = 0;
-    for (let i = 0; i < 3; i++) swe = snowStep(swe, -12, 60); // three winter months
+    for (let i = 0; i < 3; i++) swe = snowStep(swe, -12, 60, 1.5); // three winter months
     expect(swe).toBeGreaterThan(175);
-    swe = snowStep(swe, 3, 0); // a month at +3 °C melts it
+    swe = snowStep(swe, 3, 0, 4); // a spring month at +3 °C melts it
     expect(swe).toBeLessThan(5);
   });
 

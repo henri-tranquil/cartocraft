@@ -152,18 +152,22 @@ export class EditorFacade {
 
   // --- Map lifecycle ---
 
-  /** Opens the most recently edited local map, if any. */
-  /** Installs bundled sample maps (first launch / new sample version), then reopens the last map. */
-  async startUp(): Promise<void> {
+  /**
+   * Installs bundled sample maps (first launch / new sample version), then
+   * opens `preferredMapId` if it still exists (e.g. from the URL), else the
+   * most recently edited map.
+   */
+  async startUp(preferredMapId?: string): Promise<void> {
     await this.samples.install();
-    await this.restoreLastSession();
+    await this.restoreLastSession(preferredMapId);
   }
 
-  async restoreLastSession(): Promise<void> {
+  async restoreLastSession(preferredMapId?: string): Promise<void> {
     await this.run(async () => {
       await this.refreshList();
-      const latest = this.savedMapsState()[0];
-      if (latest) await this.openLoaded(await this.repository.load(latest.id));
+      const maps = this.savedMapsState();
+      const target = maps.find((m) => m.id === preferredMapId) ?? maps[0];
+      if (target) await this.openLoaded(await this.repository.load(target.id));
     });
   }
 

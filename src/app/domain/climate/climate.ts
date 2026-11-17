@@ -7,7 +7,8 @@ import { blur, monsoonWinds } from './monsoon';
 import { COLD_AIR_DEPTH_M, deflectWind, stabilityFromAnomaly, terrainSlope, WARM_AIR_DEPTH_M } from './terrain-flow';
 import { LAPSE_RATE_C_PER_M, rowSeaLevelTemperaturesC } from './temperature';
 import { prevailingWind } from './wind';
-import { SNOW_DEPTH_PER_SWE, snowStepDeci } from './snow';
+import { degreeDayFactor, SNOW_DEPTH_PER_SWE, snowStepDeci } from './snow';
+import { dailyInsolationWm2, solarDeclinationDeg } from './insolation';
 
 /**
  * Relaxation times: how long air "remembers" where it came from.
@@ -227,6 +228,8 @@ export function computeClimate(input: ClimateInput): ClimateResult {
     const offset = m * size;
     for (let y = 0; y < h; y++) {
       const landT = fineRowTemps[y].land[m];
+      // Melt follows the sunshine of the month at this latitude.
+      const degreeDayMm = degreeDayFactor(dailyInsolationWm2(rowLatitudeDeg(input, y), solarDeclinationDeg(monthMidPhase(m), axialTiltDeg)));
       const seaT = fineRowTemps[y].sea[m];
       for (let x = 0; x < w; x++) {
         const i = y * w + x;
@@ -242,7 +245,7 @@ export function computeClimate(input: ClimateInput): ClimateResult {
         // Snowpack: skip the (many) cells that are warm and snow-free.
         const before = swe[i];
         if (before === 0 && t > WARM_NO_SNOW_DECI) continue;
-        const after = snowStepDeci(before, t, fineRain[i]);
+        const after = snowStepDeci(before, t, fineRain[i], degreeDayMm);
         swe[i] = after;
         snowDepthCm[offset + i] = Math.min(255, Math.round((((before + after) / 2) * SNOW_DEPTH_PER_SWE) / 10));
       }

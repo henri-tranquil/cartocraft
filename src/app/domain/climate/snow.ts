@@ -6,13 +6,21 @@
  * - Snowfall: the share of precipitation falling as snow (all of it below
  *   −1 °C, none above +3 °C, mixed in between).
  * - Melt: the "degree-day" method used in mountain hydrology: each degree
- *   above 0 °C melts about 3 mm of water-equivalent per day.
+ *   above 0 °C melts a few mm of water-equivalent per day. Most of the melt
+ *   energy is sunshine, so the factor follows the day's insolation: ~1.5 mm
+ *   in a mid-latitude January, ~4 mm in spring (see degreeDayFactor).
  * Stocks are in mm of WATER EQUIVALENT (what you get by melting the snow);
  * fresh-to-settled snow is ~3× less dense than water, so depth ≈ 3 × that.
  * Where the stock never melts out, snow accumulates year after year: glaciers.
  */
 
-export const DEGREE_DAY_MM_PER_C_PER_DAY = 3;
+/** Degree-day factor (mm/°C/day) = base (warm air, rain) + share driven by sunshine. */
+const DEGREE_DAY_BASE_MM = 0.5;
+const DEGREE_DAY_PER_WM2 = 4 / 500;
+
+export function degreeDayFactor(dailyInsolationWm2: number): number {
+  return DEGREE_DAY_BASE_MM + DEGREE_DAY_PER_WM2 * dailyInsolationWm2;
+}
 const DAYS_PER_MONTH = 365.25 / 12;
 /** Snow depth (mm) per mm of water equivalent. */
 export const SNOW_DEPTH_PER_SWE = 3;
@@ -25,7 +33,7 @@ const SNOW_THRESHOLD_C = 1;
  * averaging +1 °C has days at −5 (it snows) and days at +6 (it melts):
  * working with the mean alone would turn all of it into rain.
  */
-export const DAILY_SPREAD_C = 4;
+export const DAILY_SPREAD_C = 3;
 
 /** Standard normal density φ and cumulative Φ (Abramowitz–Stegun 7.1.26 erf, error < 1.5e-7). */
 function normalPdf(z: number): number {
@@ -53,9 +61,9 @@ export function positiveDegrees(meanTemperatureC: number): number {
 }
 
 /** One month of the balance: returns the new water-equivalent stock (mm). */
-export function snowStep(sweMm: number, temperatureC: number, precipitationMm: number): number {
+export function snowStep(sweMm: number, temperatureC: number, precipitationMm: number, degreeDayMm: number): number {
   const snowfall = precipitationMm * snowFraction(temperatureC);
-  const melt = DEGREE_DAY_MM_PER_C_PER_DAY * positiveDegrees(temperatureC) * DAYS_PER_MONTH;
+  const melt = degreeDayMm * positiveDegrees(temperatureC) * DAYS_PER_MONTH;
   return Math.min(MAX_SWE_MM, Math.max(0, sweMm + snowfall - melt));
 }
 
@@ -64,19 +72,19 @@ const LUT_SIZE = 1201;
 let lut: { snow: Float32Array; meltMm: Float32Array } | null = null;
 
 /** Same as snowStep with the temperature in tenths of °C, through lookup tables (hot loop). */
-export function snowStepDeci(sweMm: number, temperatureDeciC: number, precipitationMm: number): number {
+export function snowStepDeci(sweMm: number, temperatureDeciC: number, precipitationMm: number, degreeDayMm: number): number {
   if (!lut) {
     const snow = new Float32Array(LUT_SIZE);
     const meltMm = new Float32Array(LUT_SIZE);
     for (let i = 0; i < LUT_SIZE; i++) {
       const t = (i + LUT_MIN_DECI) / 10;
       snow[i] = snowFraction(t);
-      meltMm[i] = DEGREE_DAY_MM_PER_C_PER_DAY * positiveDegrees(t) * DAYS_PER_MONTH;
+      meltMm[i] = positiveDegrees(t) * DAYS_PER_MONTH; // per unit degree-day factor
     }
     lut = { snow, meltMm };
   }
   const k = Math.min(LUT_SIZE - 1, Math.max(0, temperatureDeciC - LUT_MIN_DECI));
-  return Math.min(MAX_SWE_MM, Math.max(0, sweMm + precipitationMm * lut.snow[k] - lut.meltMm[k]));
+  return Math.min(MAX_SWE_MM, Math.max(0, sweMm + precipitationMm * lut.snow[k] - degreeDayMm * lut.meltMm[k]));
 }
 
 /** Share of the ground hidden by a given snow depth: ~15 cm whitens it completely. */
