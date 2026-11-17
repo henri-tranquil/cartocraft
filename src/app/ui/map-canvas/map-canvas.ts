@@ -14,8 +14,10 @@ import { DecimalPipe } from '@angular/common';
 import { EditorFacade } from '../../application/editor-facade';
 import { Icon } from '../icon/icon';
 import { WorldMap } from '../../domain/map/world-map';
+import { ClimateResult } from '../../domain/climate/climate-model';
 import { CellPoint } from '../../domain/terrain/brushes';
 import { TerrainRaster } from '../../rendering/terrain-raster';
+import { VintageBuilder, VintageRaster } from '../../rendering/vintage-raster';
 import { cellToScreen, fitViewport, panBy, resize, screenToCell, Viewport, zoomAt, zoomLimits } from '../../rendering/viewport';
 import { loadView, saveView } from './view-memory';
 import { drawWindOverlay } from '../../rendering/wind-overlay';
@@ -90,6 +92,10 @@ export class MapCanvas {
   protected readonly hover = signal<CellPoint | null>(null);
   private raster: TerrainRaster | null = null;
   private rasterMap: WorldMap | null = null;
+  /** Rendered view, rebuilt when the map or its revision changes. */
+  private vintage: { raster: VintageRaster; map: WorldMap; revision: number; climate: ClimateResult | null } | null = null;
+  private vintageRequested: { map: WorldMap; revision: number; climate: ClimateResult | null } | null = null;
+  private readonly vintageBuilder = new VintageBuilder();
   private frameRequest: number | null = null;
   private panning: { pointerId: number; lastX: number; lastY: number } | null = null;
   private viewSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -127,6 +133,8 @@ export class MapCanvas {
     effect(() => {
       this.facade.renderRevision();
       this.facade.renderMap();
+      this.facade.rendered();
+      this.facade.renderClimate();
       this.viewport();
       this.hover();
       this.facade.brush();
@@ -157,6 +165,7 @@ export class MapCanvas {
 
     this.destroyRef.onDestroy(() => {
       if (this.frameRequest !== null) cancelAnimationFrame(this.frameRequest);
+      this.vintageBuilder.dispose();
       if (this.viewSaveTimer !== null) clearTimeout(this.viewSaveTimer);
     });
   }
@@ -278,6 +287,11 @@ export class MapCanvas {
     const vp = this.viewport();
     if (!this.raster || !vp) return;
 
+    if (this.facade.rendered()) {
+      this.drawRendered(ctx, vp, map);
+      return; // dirty rects stay queued for the design raster
+    }
+
     const dirty = this.facade.takeDirtyRects();
     // Season or view change: every pixel's colour changes.
     if (this.raster.setClimate(this.facade.climateOverlay())) dirty.push(this.raster.fullRect());
@@ -299,6 +313,32 @@ export class MapCanvas {
         pins,
         active: this.pinDrag?.index ?? this.hoveredPin(),
       });
+    }
+  }
+
+  private drawRendered(ctx: CanvasRenderingContext2D, vp: Viewport, map: WorldMap): void {
+    const revision = this.facade.renderRevision();
+    const climate = this.facade.renderClimate();
+    const upToDate = (v: { map: WorldMap; revision: number; climate: ClimateResult | null } | null) =>
+      v?.map === map && v.revision === revision && v.climate === climate;
+    if (!upToDate(this.vintage) && !upToDate(this.vintageRequested)) {
+      this.vintageRequested = { map, revision, climate };
+      this.vintageBuilder.build(map, climate).then(
+        (raster) => {
+          this.vintage = { raster, map, revision, climate };
+          this.requestDraw();
+        },
+        (error: unknown) => console.error('Rendu de la carte impossible', error),
+      );
+    }
+    // While (re)building, keep showing the previous rendering of the same map.
+    if (this.vintage?.map === map) {
+      this.vintage.raster.draw(ctx, vp);
+    } else {
+      ctx.fillStyle = 'rgb(31 26 19 / 0.7)';
+      ctx.font = '600 13px "Space Grotesk", system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Préparation du rendu…', vp.widthPx / 2, vp.heightPx / 2);
     }
   }
 

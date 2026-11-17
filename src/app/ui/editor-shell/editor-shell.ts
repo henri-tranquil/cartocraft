@@ -1,11 +1,12 @@
 import { ChangeDetectionStrategy, Component, computed, effect, HostListener, inject, OnInit, signal } from '@angular/core';
-import { EditorFacade } from '../../application/editor-facade';
+import { EditorFacade, SketchMapRequest } from '../../application/editor-facade';
 import { SaveStatus } from '../../application/auto-save';
 import { ClimatePanel } from '../climate-panel/climate-panel';
 import { Icon, IconName } from '../icon/icon';
 import { MapCanvas } from '../map-canvas/map-canvas';
 import { MapList } from '../map-list/map-list';
 import { NewMapDialog, NewMapRequest } from '../new-map-dialog/new-map-dialog';
+import { SketchImportDialog } from '../sketch-import-dialog/sketch-import-dialog';
 import { ToolPanel, toolForKey } from '../tool-panel/tool-panel';
 
 import { formatUrlState, parseUrlState, SectionId, UrlState } from '../url-state';
@@ -25,6 +26,7 @@ const SECTIONS: readonly SectionDef[] = [
   { id: 'climate', icon: 'climate', short: 'Climat', label: 'Climat : latitudes, températures, saisons', available: true },
   { id: 'water', icon: 'water', short: 'Eaux', label: 'Eaux — bientôt', available: false },
   { id: 'names', icon: 'names', short: 'Noms', label: 'Noms — bientôt', available: false },
+  { id: 'render', icon: 'render', short: 'Rendu', label: 'Rendu : la carte illustrée, à l’ancienne', available: true },
 ];
 
 const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
@@ -42,13 +44,18 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
 @Component({
   selector: 'cc-editor-shell',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ClimatePanel, Icon, MapCanvas, MapList, NewMapDialog, ToolPanel],
+  imports: [ClimatePanel, Icon, MapCanvas, MapList, NewMapDialog, SketchImportDialog, ToolPanel],
   host: {
     '(window:keydown)': 'onKeydown($event)',
   },
   template: `
+    <header class="banner">
+      <cc-icon class="banner-logo" name="compass" [size]="22" [strokeWidth]="2.2" />
+      <h1 class="banner-title">Cartocraft</h1>
+      <span class="banner-tagline">atelier de cartes du monde</span>
+    </header>
+    <div class="body">
     <nav class="maps" aria-label="Mes cartes">
-      <span class="logo" title="Cartocraft"><cc-icon name="compass" [size]="20" /></span>
       <cc-map-list class="map-list" />
       <button type="button" class="square-btn" aria-label="Nouvelle carte" title="Créer une nouvelle carte" (click)="newMapDialog.open()">
         <cc-icon name="plus" [size]="18" [strokeWidth]="2.8" />
@@ -57,6 +64,10 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
         <cc-icon name="import" [size]="17" [strokeWidth]="2.4" />
         <input type="file" class="visually-hidden" aria-label="Importer une carte" [accept]="facade.fileExtension" (change)="import($event)" />
       </label>
+      <label class="square-btn" title="Créer une carte depuis l’image d’un dessin (PNG, JPEG…)">
+        <cc-icon name="sketch" [size]="17" [strokeWidth]="2.2" />
+        <input type="file" class="visually-hidden" aria-label="Carte depuis un dessin" accept="image/*" (change)="importSketch($event, sketchDialog)" />
+      </label>
     </nav>
 
     <nav class="actions" aria-label="Sections et actions">
@@ -64,6 +75,7 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
         <button
           type="button"
           class="cc-btn shape-tampon act"
+          [class.act--apart]="section.id === 'render'"
           [disabled]="!section.available || !facade.hasMap()"
           [attr.aria-pressed]="facade.hasMap() && activeSection() === section.id"
           [attr.aria-label]="section.label"
@@ -85,6 +97,9 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
           }
           @case ('climate') {
             <cc-climate-panel />
+          }
+          @case ('render') {
+            <p class="hint">Vue « carte ancienne », en lecture seule : le clic déplace la carte. Les pictos, les fleuves et les noms viendront ensuite.</p>
           }
         }
         <div class="map-actions">
@@ -157,14 +172,22 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
       }
     </main>
 
+    </div>
     <cc-new-map-dialog #newMapDialog (create)="create($event)" />
+    <cc-sketch-import-dialog #sketchDialog (create)="createFromSketch($event)" />
   `,
   styles: `
-    :host { display: flex; height: 100vh; }
+    :host { display: flex; flex-direction: column; height: 100vh; }
+    .banner { flex: none; display: flex; align-items: baseline; gap: 10px; padding: 6px 16px; background: var(--cc-side); color: var(--cc-side-fg); border-bottom: var(--cc-border-strong) solid var(--cc-accent); }
+    .banner-logo { align-self: center; color: var(--cc-accent); }
+    .banner-title { margin: 0; font-family: var(--cc-font-map); font-weight: 400; font-size: 24px; letter-spacing: 1px; line-height: 1.1; }
+    .banner-tagline { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; opacity: 0.75; }
+    .body { flex: 1; min-height: 0; display: flex; }
 
     .maps { width: 60px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 12px 0; background: var(--cc-side); overflow-y: auto; }
-    .logo { width: 40px; height: 40px; flex: none; display: flex; align-items: center; justify-content: center; background: var(--cc-ink); color: var(--cc-accent); border: var(--cc-border) solid var(--cc-side-fg); }
-    .map-list { padding-top: 10px; border-top: 1px dashed var(--cc-side-fg); }
+    .act--apart { margin-top: 10px; }
+    .act--apart::before { content: ''; position: absolute; top: -10px; left: 4px; right: 4px; border-top: var(--cc-border) dashed var(--cc-ink); }
+    .hint { margin: 0; font-size: 12px; color: var(--cc-muted); line-height: 1.45; }
 
     .actions { width: 70px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 0; border-right: var(--cc-border-strong) solid var(--cc-ink); overflow-y: auto; }
     .act { width: 52px; height: 46px; flex: none; flex-direction: column; gap: 3px; --cc-shadow: 2px; }
@@ -227,6 +250,7 @@ export class EditorShell implements OnInit {
     });
     // Only the Relief panel edits the terrain; elsewhere a click just moves the map.
     effect(() => this.facade.setEditingEnabled(this.activeSection() === 'relief'));
+    effect(() => this.facade.setRendered(this.activeSection() === 'render'));
     // The latitude ruler belongs to the Climate panel: leaving it closes the ruler.
     effect(() => {
       if (this.activeSection() !== 'climate') this.facade.stopLatitudeEditing();
@@ -255,6 +279,17 @@ export class EditorShell implements OnInit {
 
   protected create(request: NewMapRequest): void {
     void this.facade.createBlankMap(request.settings, request.name);
+  }
+
+  protected importSketch(event: Event, dialog: SketchImportDialog): void {
+    if (!(event.target instanceof HTMLInputElement)) return;
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (file) void dialog.open(file);
+  }
+
+  protected createFromSketch(request: SketchMapRequest): void {
+    void this.facade.createMapFromSketch(request);
   }
 
   protected async import(event: Event): Promise<void> {

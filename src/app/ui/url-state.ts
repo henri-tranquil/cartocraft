@@ -7,7 +7,7 @@ import { ToolId, ViewMode } from '../application/editor-facade';
  *
  *   #/carte/<map id>?section=climate&outil=raise&vue=landscape
  */
-export type SectionId = 'relief' | 'climate' | 'water' | 'names';
+export type SectionId = 'relief' | 'climate' | 'water' | 'names' | 'render';
 
 export interface UrlState {
   readonly mapId?: string;
@@ -16,7 +16,7 @@ export interface UrlState {
   readonly view?: ViewMode;
 }
 
-const SECTIONS: readonly SectionId[] = ['relief', 'climate', 'water', 'names'];
+const SECTIONS: readonly SectionId[] = ['relief', 'climate', 'water', 'names', 'render'];
 const TOOLS: readonly ToolId[] = ['pan', 'raise', 'lower', 'smooth'];
 const VIEWS: readonly ViewMode[] = ['relief', 'landscape', 'temperature', 'precipitation', 'wind'];
 const MAP_PREFIX = '/carte/';

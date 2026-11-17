@@ -24,7 +24,9 @@ export type IconName =
   | 'radius'
   | 'strength'
   | 'altitude'
-  | 'fit';
+  | 'fit'
+  | 'render'
+  | 'sketch';
 
 /**
  * Inline stroke pictograms (they follow `currentColor`). Decorative by default:
@@ -53,6 +55,12 @@ export type IconName =
         @case ('maps') {
           <path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" />
           <path d="M9 4v14M15 6v14" />
+        }
+        @case ('sketch') {
+          <path d="M3 21l3.5-1 11-11-2.5-2.5-11 11z" /><path d="M14 6l2.5 2.5M4 5c3-2 5 2 8 0" />
+        }
+        @case ('render') {
+          <path d="M4 4h16v16H4z" /><path d="M7 16l3.5-5 2.5 3.5 1.5-2L17 16" /><circle cx="15.5" cy="8" r="1.2" />
         }
         @case ('relief') {
           <path d="M2 20l7-11 4 6 2.5-3.5L22 20z" />

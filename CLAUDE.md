@@ -199,7 +199,7 @@ Rendu : la couleur des terres suit un dégradé continu en fonction (températur
 
 ## Rendu et niveaux de détail
 
-Style : **inspiré** des cartes de fantasy illustrées (mer bleu-lavande hachurée de vagues, terres parchemin, plaines vert olive pilotées par le climat, montagnes en pictos 3/4 ombrés, forêts en grappes d'arbres, typo à empattements, noms courbés). C'est une inspiration et non une copie : adapter le look au niveau de zoom.
+Style : **inspiré** des cartes de fantasy illustrées (référence d'Henri, genre Wonderdraft : mer sarcelle sombre marbrée avec halo turquoise côtier, terres parchemin, plaines vert olive pilotées par le climat, montagnes en pictos 3/4 ombrés, forêts en grappes d'arbres, typo à empattements, noms courbés). C'est une inspiration et non une copie : adapter le look au niveau de zoom.
 
 Zoom sémantique, avec trois niveaux indicatifs (ajustables) :
 
@@ -209,6 +209,7 @@ Zoom sémantique, avec trois niveaux indicatifs (ajustables) :
 | **Région** | ~100–300 km | pictos de montagne individuels, forêts, fleuves principaux et secondaires, villes |
 | **Vallée** (zoom max) | ~10–30 km | pictos plus petits et plus denses, tous les cours d'eau, villages = point + nom, noms secondaires |
 
+- **Vue Rendu (étape 7 avancée, brique 1)** : section « Rendu » (lecture seule) ; `rendering/vintage-pixels.ts` (mer marbrée par fBm, halo côtier et bord de parchemin pilotés par deux champs de distance chanfrein, grain, trait de côte vectoriel (1,1 px) (marching squares). Calcul dans `rendering/workers/vintage.worker.ts` (~0,7 s pour 1700²). Largeurs en fraction de la carte, pas en km (convention visuelle, à revoir avec le zoom sémantique). Pictos de montagnes (`vintage-mountains.ts`) : grille jitterée, score = ½ altitude du sommet + ½ dénivelé local, tirés vers le sommet (ils suivent les crêtes), triés d'arrière en avant ; flancs à la plume irréguliers, ombre hachurée à l'est, pied fondu. **4 niveaux de détail** précalculés (taille ÷ 2 par niveau), choisis pour ~22 px à l'écran : premier zoom sémantique. **Pas d'ombrage** en vue Rendu (choix d'Henri : le relief ne se lit que par les pictos). **Couleur** : lavis climatique sur le parchemin (ocre sec → vert humide selon l'humidité annuelle, pâle si le mois le plus chaud < ~10 °C), modulé par les taches. **Forêts** (`vintage-forests.ts`) : densité = humidité × été assez chaud (limite des arbres ~10 °C au mois le plus chaud) × taches de bruit (bois en grappes, échelle liée à la carte) ; pas sous les montagnes ; conifères si température annuelle basse. Résumés annuels du climat (`vintage-climate.ts`) calculés sur le thread principal puis transférés au Worker ; la vue montre l'année, pas la saison. Suite, puis fleuves (étape 5) et noms (étape 6).
 - **Étape 3 (actuel)** : `TerrainRaster` garde un bitmap 1 pixel = 1 cellule par tuile de données, mis à jour par rectangles sales (`MapStore.takeDirtyRects`), sur le thread principal. Teintes hypsométriques + ombrage (lumière NO, exagération verticale ×4). Zoom avant affiché en pixels nets (pas de lissage), pour rester honnête sur la résolution des données jusqu'à l'étape 8.
 - **Rendu par tuiles** de taille fixe en pixels, calculées dans un Worker (`OffscreenCanvas`) et mises dans un **cache LRU**. Une édition invalide seulement les tuiles concernées.
 - Le placement des pictos est **déterministe** (graine + coordonnées de la tuile), sinon ils « sautent » à chaque rendu.
@@ -237,6 +238,12 @@ Style **néo-brutalisme sur parchemin**, palette « C1 Encre & ocre » (maquette
 - `npm run sample:japan` (script `scripts/build-sample-japan.ts`, tuiles en cache dans `scripts/.cache`) → `public/samples/japon.cartocraft`.
 - Installée dans IndexedDB par `SampleMaps` avec un id fixe (`sample-japon`). **Incrémenter `SAMPLE_JAPAN.version`** (`application/samples.ts`) à chaque régénération : l'app remplace alors la copie locale (les retouches locales de l'exemple sont perdues). Une carte d'exemple supprimée n'est réinstallée qu'à la version suivante.
 - **À tenir à jour à chaque étape** (fleuves nommés, villes, régions…) ; c'est la référence pour juger le réalisme (comparer aux stations : Sapporo, Niigata, Tokyo, Osaka, Kagoshima, Vladivostok, Busan).
+
+## Import d'un dessin de carte
+
+- Bouton « dessin » de la barre de gauche → `ui/sketch-import-dialog` : l'utilisateur clique un point de **mer** puis un point de **terre** ; aperçu de la mer détectée ; largeur en km (hauteur déduite des proportions), résolution, latitudes. Crée **toujours une nouvelle carte** (`MapFactory.fromAltitudes`), sans réglage de climat (calculé ensuite comme d'habitude).
+- Domaine `domain/terrain/sketch.ts` : couleurs des deux clics proches → **dessin au trait** (remplissage de la mer depuis le clic, l'encre dilatée de 1 px fait barrière ; une mer intérieure non reliée reste terre) ; sinon **carte en couleur** (couleur la plus proche). Nettoyage par composantes connexes (petites mers non reliées → terre, poussières d'îlots → mer). Relief **inventé** : terres basses qui montent avec la distance à la côte, montagnes là où l'encre est dense (lissée, estompée sur la côte), fonds qui se creusent au large, bruit fractal.
+- Limites connues : les forêts dessinées deviennent des montagnes (encre dense) ; les noms écrits aussi ; traitement sur le thread principal (image ≤ 1600 px, ~1 s).
 
 ## Persistance
 

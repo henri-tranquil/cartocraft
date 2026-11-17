@@ -1,10 +1,11 @@
+import { detectSketchMode, SketchImage, SketchMode, SketchPoint, sketchSeaMask, sketchToAltitude } from '../domain/terrain/sketch';
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { Command, MapChange } from '../domain/commands/command';
 import { CommandHistory } from '../domain/commands/command-history';
 import { RenameMapCommand } from '../domain/commands/rename-map-command';
 import { MapFactory } from '../domain/map/map-factory';
 import { MapSummary } from '../domain/map/map-repository';
-import { BeyondEdge, BeyondEdges, MapSettings, validateMapSettings } from '../domain/map/map-settings';
+import { BeyondEdge, BeyondEdges, gridSizeCells, MapSettings, validateMapSettings } from '../domain/map/map-settings';
 import { LatitudePin, latitudeAtRow, latitudesFromPins } from '../domain/map/latitude';
 import { UpdateSettingsCommand } from '../domain/commands/update-settings-command';
 import { WorldMap } from '../domain/map/world-map';
@@ -52,6 +53,14 @@ export const HOLD_DABS_PER_SECOND = 15;
 
 export const BRUSH_LIMITS = { minRadiusKm: 1, maxRadiusKm: 200 } as const;
 
+export interface SketchMapRequest {
+  readonly name: string;
+  readonly settings: MapSettings;
+  readonly image: SketchImage;
+  readonly sea: SketchPoint;
+  readonly land: SketchPoint;
+}
+
 export interface ExportedFile {
   readonly blob: Blob;
   readonly fileName: string;
@@ -67,6 +76,8 @@ export class EditorFacade {
   private readonly climate = inject(ClimateService);
   private readonly samples = inject(SampleMaps);
   private readonly viewModeState = signal<ViewMode>('relief');
+  /** Design view (editor colours) or rendered "old map" view. */
+  private readonly renderedState = signal(false);
   /** Year phase t ∈ [0, 1[ (0 = 1st January) shown by the season slider. */
   private readonly yearPhaseState = signal(0.54);
   private readonly history = new CommandHistory();
@@ -120,6 +131,7 @@ export class EditorFacade {
   readonly brush = this.brushState.asReadonly();
 
   readonly viewMode = this.viewModeState.asReadonly();
+  readonly rendered = this.renderedState.asReadonly();
   readonly yearPhase = this.yearPhaseState.asReadonly();
   readonly climateStatus = this.climate.status;
   readonly climateDurationMs = this.climate.lastDurationMs;
@@ -141,6 +153,7 @@ export class EditorFacade {
   // Read-only access for the renderer: rendering reads the model, never writes it.
   readonly renderMap = this.store.map;
   readonly renderRevision = this.store.revision;
+  readonly renderClimate = this.climate.result;
   readonly undoLabel = computed(() => {
     this.historyRevision();
     return this.history.undoLabel;
@@ -175,6 +188,31 @@ export class EditorFacade {
     await this.run(async () => {
       const map = MapFactory.blank(settings, { id: crypto.randomUUID(), name, nowIso: new Date().toISOString() });
       await this.openLoaded(map);
+      this.autoSave.markFullSave();
+      await this.autoSave.flush();
+      await this.refreshList();
+    });
+  }
+
+  /** Land/sea classification of a drawing, for the import preview (1 = sea, 0 = land, 2 = unknown). */
+  previewSketch(image: SketchImage, sea: SketchPoint, land: SketchPoint): { mask: Uint8Array; mode: SketchMode } {
+    return { mask: sketchSeaMask(image, sea, land), mode: detectSketchMode(image, sea, land) };
+  }
+
+  /** New map whose relief is a first draft read from a drawing (no climate input: it is computed as usual). */
+  async createMapFromSketch(request: SketchMapRequest): Promise<void> {
+    await this.run(async () => {
+      const { widthCells, heightCells } = gridSizeCells(request.settings);
+      const mask = sketchSeaMask(request.image, request.sea, request.land);
+      const altitudeM = sketchToAltitude(request.image, mask, request.sea, request.land, {
+        widthCells,
+        heightCells,
+        cellKm: request.settings.baseCellKm,
+        seaLevelM: request.settings.seaLevelM,
+        seed: request.settings.seed,
+      });
+      const identity = { id: crypto.randomUUID(), name: request.name, nowIso: new Date().toISOString() };
+      await this.openLoaded(MapFactory.fromAltitudes(request.settings, identity, altitudeM));
       this.autoSave.markFullSave();
       await this.autoSave.flush();
       await this.refreshList();
@@ -283,6 +321,10 @@ export class EditorFacade {
   }
 
   // --- Climate & view ---
+
+  setRendered(rendered: boolean): void {
+    this.renderedState.set(rendered);
+  }
 
   setViewMode(mode: ViewMode): void {
     this.viewModeState.set(mode);
