@@ -1,7 +1,8 @@
-import { advect, AdvectionStep, coarseGridFor, downsampleMax, downsampleMean, excessOverLimit, upsampleInto } from './advection';
+import { advect, AdvectionStep, climbAlongWind, coarseGridFor, downsampleMax, downsampleMean, excessOverLimit, upsampleInto } from './advection';
 import { ClimateInput, ClimateResult, MONTHS, monthMidPhase, rowLatitudeDeg, TEMPERATURE_SCALE } from './climate-model';
 import { saturationHumidityGPerKg } from './humidity';
-import { monsoonWinds } from './monsoon';
+import { blur, monsoonWinds } from './monsoon';
+import { COLD_AIR_DEPTH_M, deflectWind, stabilityFromAnomaly, terrainSlope, WARM_AIR_DEPTH_M } from './terrain-flow';
 import { computeMonthlyTemperatures, LAPSE_RATE_C_PER_M, rowSeaLevelTemperaturesC } from './temperature';
 import { prevailingWind } from './wind';
 
@@ -32,12 +33,19 @@ const RAIN_OUT_TIME_S = 3 * 86_400;
 const SECONDS_PER_MONTH = (365.25 / 12) * 86_400;
 /** Mountain height seen by the air in a coarse cell: mean + this share of (max − mean). */
 const RIDGE_WEIGHT = 0.5;
+/**
+ * Latent heat: condensing 1 g of vapour per kg of air releases
+ * L·0.001/cp = 2.5e6 × 0.001 / 1005 ≈ 2.5 °C of warming. Only part of it stays
+ * in the low-level air we model (the rest warms the air aloft).
+ */
+const LATENT_WARMING_C_PER_G_PER_KG = 2.5;
+const LATENT_SHARE_AT_SURFACE = 0.3;
 
 /**
  * Full climate:
  * 1. local temperatures (latitude, season, altitude);
- * 2. winds = prevailing belts + monsoon (land–sea contrast);
- * 3. advection of heat, then of water vapour, capped by what the air can hold
+ * 2. winds = prevailing belts + monsoon (land–sea contrast), deflected by mountains;
+ * 3. advection of heat (cold air blocked by high ranges), then of water vapour, capped by what the air can hold
  *    at the height of the terrain it flows over;
  * 4. precipitation = what the air must drop when lifted (orographic) + a
  *    background rain-out of humid air (fronts, convection);
@@ -63,6 +71,9 @@ export function computeClimate(input: ClimateInput): ClimateResult {
   const meanHeight = downsampleMean(landHeight, w, h, grid);
   const maxHeight = downsampleMax(landHeight, w, h, grid);
   const ridgeM = meanHeight.map((mean, c) => mean + RIDGE_WEIGHT * (maxHeight[c] - mean));
+  // Terrain as the large-scale flow sees it: lightly smoothed, then its slope.
+  const terrainM = blur(ridgeM, cw, ch, 1);
+  const slope = terrainSlope(terrainM, cw, ch, grid.cellKm);
   const fineRowOf = (cy: number) => Math.min(h - 1, Math.floor((cy + 0.5) * grid.factor));
   const rowLat = Array.from({ length: ch }, (_, cy) => rowLatitudeDeg(input, fineRowOf(cy)));
   const rowTemps = rowLat.map((lat) => rowSeaLevelTemperaturesC(lat, input));
@@ -95,13 +106,16 @@ export function computeClimate(input: ClimateInput): ClimateResult {
 
     // Surface wind = prevailing belts (latitude) + monsoon (land–sea contrast).
     const monsoon = monsoonWinds(anomaly, cw, ch, grid.cellKm, (cy) => rowLat[cy]);
+    // Air-mass scale (~100 km): is the air here a shallow cold dome?
+    const blurredAnomaly = blur(anomaly, cw, ch, 100 / grid.cellKm / 2);
     const offset = m * cells;
     for (let cy = 0; cy < ch; cy++) {
       const belt = prevailingWind(rowLat[cy], monthMidPhase(m), axialTiltDeg);
       for (let cx = 0; cx < cw; cx++) {
         const c = cy * cw + cx;
-        const u = belt.uMs + monsoon.u[c];
-        const v = belt.vMs + monsoon.v[c];
+        // Mountains deflect what would blow straight up their slopes.
+        const stability = stabilityFromAnomaly(blurredAnomaly[c]);
+        const { u, v } = deflectWind(belt.uMs + monsoon.u[c], belt.vMs + monsoon.v[c], slope.east[c], slope.north[c], stability);
         windUMs[offset + c] = u;
         windVMs[offset + c] = v;
         const speed = Math.hypot(u, v);
@@ -119,8 +133,10 @@ export function computeClimate(input: ClimateInput): ClimateResult {
     }
 
     // Heat.
+    // Heat, with blocking: shallow cold air cannot cross high ranges.
+    const climbM = climbAlongWind(terrainM, step, cw, ch);
     temp.set(eqT);
-    advect(temp, eqT, step, cw, ch, SWEEPS);
+    advect(temp, eqT, step, cw, ch, SWEEPS, undefined, { climbM, coldDepthM: COLD_AIR_DEPTH_M, warmDepthM: WARM_AIR_DEPTH_M });
 
     // Water vapour, capped by what the air can hold over the terrain's height.
     // The sea evaporates according to ITS OWN temperature: cold air over a
@@ -141,6 +157,13 @@ export function computeClimate(input: ClimateInput): ClimateResult {
     moisture.set(eqQ);
     advect(moisture, eqQ, step, cw, ch, SWEEPS, cloudLimit);
     const condensed = excessOverLimit(moisture, eqQ, step, cloudLimit, cw, ch);
+
+    // Föhn: the heat released by condensation on the windward slopes is
+    // carried over the ridge, so the lee gets warmer, drier air.
+    const latentC = condensed.map((g) => g * LATENT_WARMING_C_PER_G_PER_KG * LATENT_SHARE_AT_SURFACE);
+    temp.set(eqT);
+    advect(temp, eqT, step, cw, ch, SWEEPS, undefined, { climbM, coldDepthM: COLD_AIR_DEPTH_M, warmDepthM: WARM_AIR_DEPTH_M }, latentC);
+    for (let c = 0; c < cells; c++) deltaT[offset + c] = temp[c] - eqT[c];
 
     // Precipitation, kg/m²/s → mm/month (1 kg of water per m² = 1 mm).
     const cellM = grid.cellKm * 1000;

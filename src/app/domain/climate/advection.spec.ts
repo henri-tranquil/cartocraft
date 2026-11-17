@@ -73,16 +73,29 @@ describe('monsoon', () => {
 });
 
 describe('orographic precipitation', () => {
-  it('rains on the windward side of a range and leaves a dry rain shadow behind it', () => {
+  it('rains on the windward side of a range in summer and leaves a dry rain shadow behind it', () => {
+    const JULY = 0.54;
     const input = westOceanEastLand();
     const w = input.widthCells;
     const altitudeM = input.altitudeM.slice();
     for (let y = 0; y < input.heightCells; y++) for (let x = 140; x < 146; x++) altitudeM[y * w + x] = 2500;
     const result = computeClimate({ ...input, altitudeM });
     const flat = computeClimate(input);
-    const windward = precipitationAtMm(result, 141, 20, JANUARY); // on the rising slope
-    const lee = precipitationAtMm(result, 160, 20, JANUARY);
-    expect(windward).toBeGreaterThan(precipitationAtMm(flat, 141, 20, JANUARY) * 1.5);
-    expect(lee).toBeLessThan(precipitationAtMm(flat, 160, 20, JANUARY));
+    // Summer: mild, unstable air is lifted over the range and drops its water.
+    expect(precipitationAtMm(result, 141, 20, JULY)).toBeGreaterThan(precipitationAtMm(flat, 141, 20, JULY) * 3);
+    // Behind it, in both seasons, the air comes down dry.
+    expect(precipitationAtMm(result, 160, 20, JULY)).toBeLessThan(precipitationAtMm(flat, 160, 20, JULY) / 2);
+    expect(precipitationAtMm(result, 160, 20, JANUARY)).toBeLessThan(precipitationAtMm(flat, 160, 20, JANUARY) / 2);
+  });
+
+  it('warms the lee of a rainy range (föhn)', () => {
+    const JULY = 0.54;
+    const input = westOceanEastLand();
+    const w = input.widthCells;
+    const altitudeM = input.altitudeM.slice();
+    for (let y = 0; y < input.heightCells; y++) for (let x = 140; x < 146; x++) altitudeM[y * w + x] = 2500;
+    const lee = 20 * w + 155;
+    const withRange = temperatureAtC(computeClimate({ ...input, altitudeM }), lee, JULY);
+    expect(withRange).toBeGreaterThan(temperatureAtC(computeClimate(input), lee, JULY) + 0.5);
   });
 });

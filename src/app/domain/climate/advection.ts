@@ -77,6 +77,18 @@ function bilinear(field: Float32Array, w: number, h: number, gx: number, gy: num
   return top * (1 - fy) + bottom * fy;
 }
 
+/** Optional terrain blocking for `advect` (see terrain-flow.ts). */
+export interface Blocking {
+  /** Metres the air climbs from its upwind point into each cell (≥ 0). */
+  readonly climbM: Float32Array;
+  /** Thickness of air colder / warmer than the local equilibrium. */
+  readonly coldDepthM: number;
+  readonly warmDepthM: number;
+}
+
+/** Extra quantity injected into the air in each cell, then carried downwind (e.g. latent heat). */
+export type AdvectionSource = Float32Array;
+
 export interface AdvectionStep {
   /** Grid-space step back to the upwind point, in cells (y down). Zero when calm. */
   readonly dx: Float32Array;
@@ -99,6 +111,8 @@ export function advect(
   h: number,
   sweeps = 8,
   limit?: Float32Array,
+  blocking?: Blocking,
+  source?: AdvectionSource,
 ): void {
   for (let sweep = 0; sweep < sweeps; sweep++) {
     const reverseX = sweep % 2 === 1;
@@ -112,8 +126,14 @@ export function advect(
         let value = eq[c];
         if (mem > 0) {
           const upwind = bilinear(field, w, h, x - step.dx[c], y - step.dy[c]);
-          value += (upwind - eq[c]) * mem;
+          let kept = mem;
+          const climb = blocking ? blocking.climbM[c] : 0;
+          if (climb > 0 && blocking) {
+            kept *= Math.exp(-climb / (upwind < eq[c] ? blocking.coldDepthM : blocking.warmDepthM));
+          }
+          value += (upwind - eq[c]) * kept;
         }
+        if (source) value += source[c];
         field[c] = limit ? Math.min(value, limit[c]) : value;
       }
     }
@@ -185,4 +205,16 @@ export function upsampleInto(coarse: Float32Array, grid: CoarseGrid, fineW: numb
       out[o + x] = top + (bottom - top) * fy;
     }
   }
+}
+
+/** How much the air climbs from its upwind point into each cell, metres (0 when descending or calm). */
+export function climbAlongWind(heightM: Float32Array, step: AdvectionStep, w: number, h: number): Float32Array {
+  const climb = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const c = y * w + x;
+      if (step.memory[c] > 0) climb[c] = Math.max(0, heightM[c] - bilinear(heightM, w, h, x - step.dx[c], y - step.dy[c]));
+    }
+  }
+  return climb;
 }
