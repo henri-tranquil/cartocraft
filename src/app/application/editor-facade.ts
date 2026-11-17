@@ -14,7 +14,7 @@ import { CellRect, getCell, isInside } from '../domain/terrain/tiled-grid';
 import { AutoSave } from './auto-save';
 import { ClimateService } from './climate';
 import { SampleMaps } from './sample-maps';
-import { windAtRow, WindVector } from '../domain/climate/wind';
+import { windAt, WindVector } from '../domain/climate/wind';
 import { ClimateResult, humidityAtPct, temperatureAtC } from '../domain/climate/climate-model';
 import { MapStore } from './map-store';
 import { MAP_FILE_CODEC, MAP_REPOSITORY } from './ports';
@@ -263,8 +263,8 @@ export class EditorFacade {
   /** Prevailing wind under a point at the current season; null if unknown. */
   windAt(point: CellPoint): WindVector | null {
     const result = this.climate.result();
-    if (!result || point.y < 0 || point.y >= result.heightCells) return null;
-    return windAtRow(result, point.y, this.yearPhaseState());
+    if (!result || point.x < 0 || point.y < 0 || point.x >= result.widthCells || point.y >= result.heightCells) return null;
+    return windAt(result, point.x, point.y, this.yearPhaseState());
   }
 
   // --- Climate & view ---

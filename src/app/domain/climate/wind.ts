@@ -1,5 +1,5 @@
 import { solarDeclinationDeg } from './insolation';
-import { monthBlend, monthMidPhase, MONTHS } from './climate-model';
+import { ClimateResult, monthBlend } from './climate-model';
 
 /**
  * PREVAILING SURFACE WINDS — the "three-cell" model of atmospheric circulation.
@@ -24,7 +24,8 @@ import { monthBlend, monthMidPhase, MONTHS } from './climate-model';
  *
  * Here: a smooth function of latitude, u = −U·sin(6|φ|) (east component) and
  * v = −V·sin(6|φ|)·sign(φ) (north component): sin(6φ) changes sign exactly at
- * 0°, 30°, 60°, 90°. Terrain deflection comes with the orographic brick.
+ * 0°, 30°, 60°, 90°. Monsoon winds (monsoon.ts) are added on top;
+ * terrain deflection comes with the orographic brick.
  */
 
 /** Share of the solar declination by which the belts shift with the seasons. */
@@ -58,43 +59,32 @@ export function prevailingWind(latitudeDeg: number, yearPhase: number, axialTilt
   return { uMs: uMs + 0, vMs: vMs + 0 }; // + 0 turns −0 into 0
 }
 
-/**
- * Winds for the 12 mid-month snapshots. They depend only on latitude for now,
- * so one vector per ROW: arrays of MONTHS × heightCells, month m at offset m * h.
- */
-export function computeMonthlyWinds(
-  heightCells: number,
-  rowLatitude: (y: number) => number,
-  axialTiltDeg: number,
-): { windUMs: Float32Array; windVMs: Float32Array } {
-  const windUMs = new Float32Array(MONTHS * heightCells);
-  const windVMs = new Float32Array(MONTHS * heightCells);
-  for (let m = 0; m < MONTHS; m++) {
-    const phase = monthMidPhase(m);
-    for (let y = 0; y < heightCells; y++) {
-      const wind = prevailingWind(rowLatitude(y), phase, axialTiltDeg);
-      windUMs[m * heightCells + y] = wind.uMs;
-      windVMs[m * heightCells + y] = wind.vMs;
-    }
-  }
-  return { windUMs, windVMs };
-}
-
-/** Wind of a row at a continuous year phase (interpolated between mid-month snapshots). */
-export function windAtRow(
-  result: { readonly heightCells: number; readonly windUMs: Float32Array; readonly windVMs: Float32Array },
-  y: number,
+/** Wind under a fine cell at a continuous year phase (bilinear on the coarse wind grid, interpolated between months). */
+export function windAt(
+  result: Pick<ClimateResult, 'windGrid' | 'windUMs' | 'windVMs'>,
+  xCell: number,
+  yCell: number,
   yearPhase: number,
 ): WindVector {
-  const h = result.heightCells;
-  const row = Math.max(0, Math.min(h - 1, Math.floor(y)));
+  const { width: w, height: h, factor } = result.windGrid;
+  const gx = Math.min(w - 1, Math.max(0, xCell / factor - 0.5));
+  const gy = Math.min(h - 1, Math.max(0, yCell / factor - 0.5));
+  const x0 = Math.floor(gx);
+  const y0 = Math.floor(gy);
+  const x1 = Math.min(w - 1, x0 + 1);
+  const y1 = Math.min(h - 1, y0 + 1);
+  const fx = gx - x0;
+  const fy = gy - y0;
   const { m0, m1, f } = monthBlend(yearPhase);
-  const u0 = result.windUMs[m0 * h + row];
-  const v0 = result.windVMs[m0 * h + row];
-  return {
-    uMs: u0 + (result.windUMs[m1 * h + row] - u0) * f,
-    vMs: v0 + (result.windVMs[m1 * h + row] - v0) * f,
+  const sample = (field: Float32Array, m: number) => {
+    const o = m * w * h;
+    const top = field[o + y0 * w + x0] * (1 - fx) + field[o + y0 * w + x1] * fx;
+    const bottom = field[o + y1 * w + x0] * (1 - fx) + field[o + y1 * w + x1] * fx;
+    return top * (1 - fy) + bottom * fy;
   };
+  const u0 = sample(result.windUMs, m0);
+  const v0 = sample(result.windVMs, m0);
+  return { uMs: u0 + (sample(result.windUMs, m1) - u0) * f, vMs: v0 + (sample(result.windVMs, m1) - v0) * f };
 }
 
 const FROM_DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];

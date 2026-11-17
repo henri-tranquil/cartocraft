@@ -30,9 +30,11 @@ export interface ClimateResult {
   readonly heightCells: number;
   /** MONTHS consecutive row-major fields, month m at offset m * width * height. Tenths of °C. */
   readonly temperatureDeciC: Int16Array;
+  /** The coarse grid the winds live on (fine cells per coarse cell side = factor). */
+  readonly windGrid: { readonly width: number; readonly height: number; readonly factor: number };
   /**
-   * Prevailing wind per ROW (latitude-only for now), MONTHS × heightCells,
-   * month m at offset m * heightCells. Eastward / northward components, m/s.
+   * Surface wind (prevailing + monsoon) per COARSE cell, MONTHS row-major
+   * fields of windGrid size. Eastward / northward components, m/s.
    */
   readonly windUMs: Float32Array;
   readonly windVMs: Float32Array;

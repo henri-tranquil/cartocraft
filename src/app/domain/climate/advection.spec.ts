@@ -1,6 +1,7 @@
 import { advect, coarseGridFor } from './advection';
 import { computeClimate } from './climate';
 import { ClimateInput, humidityAtPct, temperatureAtC } from './climate-model';
+import { windAt } from './wind';
 
 const JANUARY = 0.04;
 
@@ -39,5 +40,25 @@ describe('advection', () => {
     const inland = temperatureAtC(result, row + 230, JANUARY);
     expect(coast).toBeGreaterThan(inland + 3);
     expect(humidityAtPct(result, row + 122, JANUARY)).toBeGreaterThan(humidityAtPct(result, row + 230, JANUARY));
+  });
+});
+
+describe('monsoon', () => {
+  /** 2000 × 2000 km at 50–32° N: a continent in the north-west quadrant, sea elsewhere. */
+  function continentNorthWest(): ClimateInput {
+    const n = 200;
+    const altitudeM = new Int16Array(n * n);
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) altitudeM[y * n + x] = x < n / 2 && y < n / 2 ? 300 : -2000;
+    return { widthCells: n, heightCells: n, cellKm: 10, altitudeM, latitudeTopDeg: 50, latitudeBottomDeg: 32, axialTiltDeg: 23.4, seaLevelM: 0, globalTemperatureOffsetC: 0 };
+  }
+
+  it('blows out of the cold continent in winter and into the warm continent in summer', () => {
+    const result = computeClimate(continentNorthWest());
+    // Just south-east of the continent's corner: the outflow points south-east in winter.
+    const winterMinusSummer = (yearPhase: number) => windAt(result, 110, 110, yearPhase);
+    const jan = winterMinusSummer(0.04);
+    const jul = winterMinusSummer(0.54);
+    expect(jan.vMs).toBeLessThan(jul.vMs); // more southward in winter
+    expect(jul.vMs).toBeGreaterThan(0); // drawn north toward the warm land in summer
   });
 });

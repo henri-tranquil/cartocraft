@@ -151,15 +151,16 @@ Le calcul se fait sur la grille de base (inutile de descendre plus fin), dans un
 **Implémentation (étape 4, briques 1-2)** :
 - Saison = phase de l'année `t ∈ [0,1[`, **0 = 1er janvier** (plus lisible dans l'UI que l'équinoxe).
 - 12 instantanés mensuels (milieu de mois) précalculés ; le curseur interpole entre deux mois. Stockage `Int16` en **dixièmes de °C** (24 Mo pour 1000², ~100 Mo pour 2048² : à surveiller).
-- Température moyenne annuelle = **table** insolation → °C calée sur les moyennes zonales terrestres (pas une droite : la vraie relation est plate sous les tropiques, raide vers les pôles). Amplitude saisonnière amortie et retardée par l'inertie thermique (terre 45 %, ~1 mois ; mer 12 %, ~2 mois). Surface de la mer bornée à −1,8 °C (gel de l'eau de mer).
+- Température moyenne annuelle = **table** insolation → °C calée sur les moyennes zonales terrestres (pas une droite : la vraie relation est plate sous les tropiques, raide vers les pôles). Amplitude saisonnière amortie et retardée par l'inertie thermique (terre 45 %, ~1 mois ; mer 22 %, ~2 mois). Surface de la mer bornée à −1,8 °C (gel de l'eau de mer).
 - Calcul dans `infrastructure/workers/climate.worker.ts` derrière le port `ClimateEngine` ; `ClimateService` relance avec un délai de 1,5 s après une édition, une seule exécution à la fois, résultats périmés ignorés (compteur de génération).
 
 **Brique 3 (vents + advection)** :
-- Vents dominants : modèle à trois cellules, `u = −U·sin(6|φ|)`, ceintures décalées de 40 % de la déclinaison. Un vecteur **par ligne** (latitude seule) tant que le relief ne dévie pas l'air (brique 4).
+- Vents dominants : modèle à trois cellules, `u = −U·sin(6|φ|)`, ceintures décalées de 40 % de la déclinaison.
 - Advection semi-lagrangienne sur une **grille grossière** (≤ 256 cellules de côté), balayages alternés en place ; relaxation `e^(−Δs/L)`, `L = vitesse × τ` (τ terre 1 j, mer ½ j). La correction (T advectée − T locale) est rééchantillonnée et ajoutée aux températures fines (qui gardent l'altitude).
 - Humidité : vapeur d'eau advectée, plafonnée à la saturation (Clausius-Clapeyron) ; sortie = humidité relative `Uint8` en %.
 - Vue « Paysage » : couleur continue f(température, humidité) (ocre sec → vert, brun au repos, neige, banquise). L'humidité relative est un **proxy provisoire** : la brique 4 (précipitations) doit la remplacer pour la végétation.
-- **Limite connue** : pas de mousson (systèmes de pression continentaux). Sur le Japon : hiver trop doux au nord, été trop sec et Vladivostok trop chaud.
+- **Mousson** (`monsoon.ts`) : anomalie thermique (T d'équilibre − T de la mer à la même latitude), lissée à ~600 km ; l'air remonte ce gradient (froid → chaud, des hautes vers les basses pressions), dévié par Coriolis jusqu'à 55° (traversée des isobares à 35° à cause du frottement), atténué près de l'équateur. Vent total = ceintures + mousson, **par cellule grossière** (`windGrid`).
+- Calibrage sur le Japon : mer à 22 % de l'oscillation saisonnière, τ mer 1 jour. Écart moyen aux 7 stations ≈ 1,9 °C. Restent trop doux en hiver : Sapporo (+4), Osaka/Kagoshima/Busan (+2,5) — le vrai anticyclone de Sibérie est hors de la carte.
 
 Rendu : la couleur des terres suit un dégradé continu en fonction (température, humidité) : ocre sec, vert humide, blanc enneigé. Un curseur (timeline) de saison anime le tout : la neige descend, la végétation change de teinte, les fleuves du nord gèlent.
 

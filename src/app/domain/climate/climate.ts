@@ -1,8 +1,9 @@
 import { advect, AdvectionStep, coarseGridFor, downsampleMean, upsampleAt } from './advection';
-import { ClimateInput, ClimateResult, MONTHS, rowLatitudeDeg, TEMPERATURE_SCALE } from './climate-model';
+import { ClimateInput, ClimateResult, MONTHS, monthMidPhase, rowLatitudeDeg, TEMPERATURE_SCALE } from './climate-model';
 import { saturationHumidityGPerKg } from './humidity';
 import { computeMonthlyTemperatures, rowSeaLevelTemperaturesC } from './temperature';
-import { computeMonthlyWinds } from './wind';
+import { monsoonWinds } from './monsoon';
+import { prevailingWind } from './wind';
 
 /**
  * Relaxation times: how long air "remembers" where it came from.
@@ -10,7 +11,7 @@ import { computeMonthlyWinds } from './wind';
  * travels far before forgetting the ocean.
  */
 const TAU_LAND_S = 86_400; // 1 day
-const TAU_SEA_S = 43_200; // ½ day
+const TAU_SEA_S = 86_400; // ½ day
 /** Below this the air is considered calm: no transport. */
 const CALM_MS = 0.5;
 /** Equilibrium relative humidity the surface pushes the air toward. */
@@ -26,7 +27,6 @@ export function computeClimate(input: ClimateInput): ClimateResult {
   const { widthCells: w, heightCells: h, altitudeM, seaLevelM, axialTiltDeg } = input;
   const size = w * h;
   const local = computeMonthlyTemperatures(input);
-  const winds = computeMonthlyWinds(h, (y) => rowLatitudeDeg(input, y), axialTiltDeg);
 
   // --- Coarse grid: sea fraction and per-row sea-level temperatures ---
   const grid = coarseGridFor(w, h, input.cellKm);
@@ -36,7 +36,11 @@ export function computeClimate(input: ClimateInput): ClimateResult {
   for (let i = 0; i < size; i++) seaFine[i] = altitudeM[i] <= seaLevelM ? 1 : 0;
   const seaFraction = downsampleMean(seaFine, w, h, grid);
   const fineRowOf = (cy: number) => Math.min(h - 1, Math.floor((cy + 0.5) * grid.factor));
-  const rowTemps = Array.from({ length: ch }, (_, cy) => rowSeaLevelTemperaturesC(rowLatitudeDeg(input, fineRowOf(cy)), input));
+  const rowLat = Array.from({ length: ch }, (_, cy) => rowLatitudeDeg(input, fineRowOf(cy)));
+  const rowTemps = rowLat.map((lat) => rowSeaLevelTemperaturesC(lat, input));
+  const windUMs = new Float32Array(MONTHS * cw * ch);
+  const windVMs = new Float32Array(MONTHS * cw * ch);
+  const anomaly = new Float32Array(cw * ch);
 
   const temperatureDeciC = local.temperatureDeciC;
   const humidityPct = new Uint8Array(MONTHS * size);
@@ -51,15 +55,29 @@ export function computeClimate(input: ClimateInput): ClimateResult {
   const step: AdvectionStep = { dx: new Float32Array(cw * ch), dy: new Float32Array(cw * ch), memory: new Float32Array(cw * ch) };
 
   for (let m = 0; m < MONTHS; m++) {
+    // Equilibrium (windless) temperature, and how far it departs from the sea at that latitude.
     for (let cy = 0; cy < ch; cy++) {
-      const u = winds.windUMs[m * h + fineRowOf(cy)];
-      const v = winds.windVMs[m * h + fineRowOf(cy)];
-      const speed = Math.hypot(u, v);
       const { land, sea } = rowTemps[cy];
       for (let cx = 0; cx < cw; cx++) {
         const c = cy * cw + cx;
         const sf = seaFraction[c];
         eqT[c] = sf * sea[m] + (1 - sf) * land[m];
+        anomaly[c] = eqT[c] - sea[m];
+      }
+    }
+    // Surface wind = prevailing belts (latitude) + monsoon (land–sea contrast).
+    const monsoon = monsoonWinds(anomaly, cw, ch, grid.cellKm, (cy) => rowLat[cy]);
+    const windOffset = m * cw * ch;
+    for (let cy = 0; cy < ch; cy++) {
+      const belt = prevailingWind(rowLat[cy], monthMidPhase(m), axialTiltDeg);
+      for (let cx = 0; cx < cw; cx++) {
+        const c = cy * cw + cx;
+        const sf = seaFraction[c];
+        const u = belt.uMs + monsoon.u[c];
+        const v = belt.vMs + monsoon.v[c];
+        windUMs[windOffset + c] = u;
+        windVMs[windOffset + c] = v;
+        const speed = Math.hypot(u, v);
         if (speed < CALM_MS) {
           step.memory[c] = 0;
           continue;
@@ -98,7 +116,15 @@ export function computeClimate(input: ClimateInput): ClimateResult {
     }
   }
 
-  return { widthCells: w, heightCells: h, temperatureDeciC, ...winds, humidityPct };
+  return {
+    widthCells: w,
+    heightCells: h,
+    temperatureDeciC,
+    windGrid: { width: cw, height: ch, factor: grid.factor },
+    windUMs,
+    windVMs,
+    humidityPct,
+  };
 }
 
 const LUT_MIN_DECI = -700;

@@ -1,5 +1,5 @@
 import { ClimateResult } from '../domain/climate/climate-model';
-import { windAtRow } from '../domain/climate/wind';
+import { windAt } from '../domain/climate/wind';
 import { cellToScreen, screenToCell, Viewport } from './viewport';
 
 const INK = '#1f1a13';
@@ -11,8 +11,8 @@ const PX_PER_MS = 3.2;
 const MIN_LENGTH_PX = 6;
 
 /**
- * Wind arrows in screen space, pointing where the air GOES. Rows are sampled
- * on a fixed screen grid: zooming changes which rows are sampled, not the density.
+ * Wind arrows in screen space, pointing where the air GOES, sampled on a
+ * fixed screen grid: zooming changes which cells are sampled, not the density.
  */
 export function drawWindOverlay(ctx: CanvasRenderingContext2D, vp: Viewport, result: ClimateResult, yearPhase: number): void {
   const topLeft = cellToScreen(vp, 0, 0);
@@ -29,17 +29,18 @@ export function drawWindOverlay(ctx: CanvasRenderingContext2D, vp: Viewport, res
   const startX = topLeft.x + Math.ceil((x0 - topLeft.x) / SPACING_PX) * SPACING_PX + SPACING_PX / 2;
   const startY = topLeft.y + Math.ceil((y0 - topLeft.y) / SPACING_PX) * SPACING_PX + SPACING_PX / 2;
   for (let sy = startY; sy < y1; sy += SPACING_PX) {
-    const wind = windAtRow(result, screenToCell(vp, 0, sy).y, yearPhase);
-    const speed = Math.hypot(wind.uMs, wind.vMs);
-    const length = Math.max(MIN_LENGTH_PX, speed * PX_PER_MS);
-    // Screen y points down, north is up: flip the north component.
-    const dx = speed > 0 ? (wind.uMs / speed) * length : 0;
-    const dy = speed > 0 ? (-wind.vMs / speed) * length : 0;
     for (let sx = startX; sx < x1; sx += SPACING_PX) {
+      const cell = screenToCell(vp, sx, sy);
+      const wind = windAt(result, cell.x, cell.y, yearPhase);
+      const speed = Math.hypot(wind.uMs, wind.vMs);
       if (speed < 0.5) {
         drawCalm(ctx, sx, sy);
         continue;
       }
+      const length = Math.max(MIN_LENGTH_PX, speed * PX_PER_MS);
+      // Screen y points down, north is up: flip the north component.
+      const dx = (wind.uMs / speed) * length;
+      const dy = (-wind.vMs / speed) * length;
       drawArrow(ctx, sx - dx / 2, sy - dy / 2, sx + dx / 2, sy + dy / 2);
     }
   }

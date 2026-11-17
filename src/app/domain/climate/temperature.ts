@@ -38,7 +38,7 @@ const MEAN_TEMPERATURE_BY_INSOLATION: readonly (readonly [number, number])[] = [
 /** °C per W/m² used for the seasonal swing (mid-latitude slope of the table). */
 const SEASONAL_SLOPE_C_PER_WM2 = 0.19;
 const LAND_SEASONAL_RESPONSE = 0.45;
-const SEA_SEASONAL_RESPONSE = 0.12;
+const SEA_SEASONAL_RESPONSE = 0.22;
 const LAND_LAG_YEAR = 1 / 12;
 const SEA_LAG_YEAR = 2 / 12;
 export const LAPSE_RATE_C_PER_M = 6.5 / 1000;
