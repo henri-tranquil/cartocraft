@@ -1,7 +1,8 @@
+import { MapFeature } from '../features/map-feature';
 import { Int16TiledGrid } from '../terrain/tiled-grid';
 import { MapSettings } from './map-settings';
 
-export const CURRENT_FORMAT_VERSION = 2;
+export const CURRENT_FORMAT_VERSION = 3;
 
 export interface TerrainData {
   /** Base altitude grid, in metres. High-res touch-up tiles come in step 8. */
@@ -14,7 +15,7 @@ export interface TerrainData {
  * application store (revision counter), not by object identity.
  *
  * Fields still to come (each with its roadmap step and a format migration):
- * features (6), climateOverrides (4), hydrologyHints (5).
+ * climateOverrides (4), hydrologyHints (5).
  */
 export interface WorldMap {
   readonly id: string;
@@ -23,6 +24,8 @@ export interface WorldMap {
   /** Mutable: replaced as a whole by UpdateSettingsCommand. */
   settings: MapSettings;
   readonly terrain: TerrainData;
+  /** Named places, edited in place by FeatureEditCommand (the array is mutable, its items are not). */
+  readonly features: MapFeature[];
   readonly createdAt: string;
   updatedAt: string;
 }

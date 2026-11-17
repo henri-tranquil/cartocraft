@@ -29,8 +29,16 @@ const V1_TO_V2: Migration = {
   },
 };
 
+/** v2 → v3: named places (`features`), none in older maps. */
+const V2_TO_V3: Migration = {
+  fromVersion: 2,
+  migrate(document) {
+    return { ...document, header: { ...document.header, formatVersion: 3, features: [] } };
+  },
+};
+
 /** Ordered list. */
-export const MIGRATIONS: readonly Migration[] = [V1_TO_V2];
+export const MIGRATIONS: readonly Migration[] = [V1_TO_V2, V2_TO_V3];
 
 export function migrateToCurrent(
   document: RawMapDocument,

@@ -132,6 +132,8 @@ La `WorldMap` est **mutable** (grilles modifiées en place par les commandes). L
 
 Chaque élément nommé a un **rang d'importance**, qui détermine à partir de quel zoom il apparaît.
 
+**Implémenté (étape 6, brique 1)** : `settlement` (capitale, ville, bourg, village), `peak`, `label` (ton terre ou eau) ; positions en **km** (pas en cellules) ; format **v3** (`features` dans l'en-tête JSON, migration v2→v3). Une seule commande `FeatureEditCommand(avant, après)` pour ajouter, modifier ou supprimer. Rang 1–5 (défaut selon le type, modifiable : « Visible dès »). Visibilité = **échelle** à l'écran (`LABEL_STYLE.minPxPerKm` : 0 / 0,8 / 2 / 6 / 15 px/km), puis collisions gloutonnes par importance (`rendering/label-layer.ts`), dessinées au-dessus des deux vues. Section Noms : clic dans le vide = nouveau lieu, clic sur un nom = sélection, glisser un nom = déplacer, glisser le vide = déplacer la carte ; Échap / Suppr. Restent : régions, chaînes, étiquettes courbes, fleuves nommés (après l'hydrologie), noms sur la carte du Japon.
+
 ## Climat (pas de biomes)
 
 **Règle absolue : aucune classification en biomes.** Le climat est fait de **champs continus**, et la couleur se calcule directement à partir des valeurs.

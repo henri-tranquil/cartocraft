@@ -24,11 +24,15 @@ import { drawWindOverlay } from '../../rendering/wind-overlay';
 import { windFromDirection } from '../../domain/climate/wind';
 import { drawLatitudeOverlay, LatitudeHandle, latitudeScreenY, PIN_HIT_TOLERANCE_PX, pinScreenY, tiltLines } from '../../rendering/latitude-overlay';
 import { latitudeAtRow } from '../../domain/map/latitude';
+import { canvasTextMeasure, drawLabels, labelAt, layoutLabels, PlacedLabel } from '../../rendering/label-layer';
+import { LABEL_STYLE } from '../../rendering/style/label-style';
 
 const WHEEL_ZOOM_SPEED = 0.0015;
 const VIEW_SAVE_DEBOUNCE_MS = 400;
 /** Outside the map: same parchment as the frame. */
 const BACKGROUND = '#e2cfa6';
+/** Below this pointer travel a press is a click (place / select), above it a drag (move / pan). */
+const CLICK_SLOP_PX = 4;
 
 @Component({
   selector: 'cc-map-canvas',
@@ -102,10 +106,18 @@ export class MapCanvas {
   /** Latitude pin being dragged, or hovered (for the highlight and the cursor). */
   private pinDrag: { pointerId: number; index: LatitudeHandle } | null = null;
   protected readonly hoveredPin = signal<LatitudeHandle | null>(null);
+  /** Names drawn in the last frame, for clicks (what you see is what you can click). */
+  private placedLabels: PlacedLabel[] = [];
+  /** Press in the Names section: on a name (drag = move it) or on empty map (click = new place, drag = pan). */
+  private namesGesture: { pointerId: number; startX: number; startY: number; lastX: number; lastY: number; hitId: string | null; moved: boolean } | null = null;
+  private readonly draggedFeature = signal<{ id: string; xKm: number; yKm: number } | null>(null);
+  protected readonly hoveringLabel = signal(false);
 
-  protected readonly cursor = computed(() =>
-    this.hoveredPin() !== null ? 'ns-resize' : this.facade.effectiveTool() === 'pan' ? 'grab' : 'crosshair',
-  );
+  protected readonly cursor = computed(() => {
+    if (this.hoveredPin() !== null) return 'ns-resize';
+    if (this.facade.namesEditing()) return this.hoveringLabel() ? 'move' : 'copy';
+    return this.facade.effectiveTool() === 'pan' ? 'grab' : 'crosshair';
+  });
 
   protected readonly hoverInfo = computed(() => {
     this.facade.renderRevision(); // altitude changes while painting
@@ -145,6 +157,9 @@ export class MapCanvas {
       this.facade.displayedLatitudes();
       this.facade.displayedTilt();
       this.hoveredPin();
+      this.facade.features();
+      this.facade.selectedFeatureId();
+      this.draggedFeature();
       this.requestDraw();
     });
 
@@ -158,6 +173,8 @@ export class MapCanvas {
     });
 
     afterNextRender(() => {
+      // Canvas text does not wait for web fonts: redraw once the map font is there.
+      void document.fonts.load(`16px ${LABEL_STYLE.font}`).then(() => this.requestDraw());
       const observer = new ResizeObserver(() => this.onResize());
       observer.observe(this.host.nativeElement);
       this.destroyRef.onDestroy(() => observer.disconnect());
@@ -179,6 +196,14 @@ export class MapCanvas {
     const pin = event.button === 0 ? this.pinAt(vp, event.offsetY) : null;
     if (pin !== null) {
       this.pinDrag = { pointerId: event.pointerId, index: pin };
+      return;
+    }
+    if (event.button === 0 && this.facade.namesEditing()) {
+      // Commit a name being typed before the selection changes.
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      const hit = labelAt(this.placedLabels, event.offsetX, event.offsetY);
+      if (hit) this.facade.selectFeature(hit.feature.id);
+      this.namesGesture = { pointerId: event.pointerId, startX: event.offsetX, startY: event.offsetY, lastX: event.offsetX, lastY: event.offsetY, hitId: hit?.feature.id ?? null, moved: false };
       return;
     }
     // Middle or right button always pans; left button uses the active tool.
@@ -208,6 +233,21 @@ export class MapCanvas {
       }
       return;
     }
+    const names = this.namesGesture;
+    if (names?.pointerId === event.pointerId) {
+      names.moved ||= Math.hypot(event.offsetX - names.startX, event.offsetY - names.startY) > CLICK_SLOP_PX;
+      if (names.moved && names.hitId) {
+        const map = this.facade.renderMap();
+        const cell = screenToCell(vp, event.offsetX, event.offsetY);
+        if (map) this.draggedFeature.set({ id: names.hitId, xKm: cell.x * map.settings.baseCellKm, yKm: cell.y * map.settings.baseCellKm });
+      } else if (names.moved) {
+        this.viewport.set(panBy(vp, event.offsetX - names.lastX, event.offsetY - names.lastY));
+      }
+      names.lastX = event.offsetX;
+      names.lastY = event.offsetY;
+      return;
+    }
+    if (this.facade.namesEditing()) this.hoveringLabel.set(labelAt(this.placedLabels, event.offsetX, event.offsetY) !== null);
     if (!this.panning) this.hoveredPin.set(this.pinAt(vp, event.offsetY));
     if (this.panning?.pointerId === event.pointerId) {
       this.viewport.set(panBy(vp, event.offsetX - this.panning.lastX, event.offsetY - this.panning.lastY));
@@ -229,6 +269,18 @@ export class MapCanvas {
     }
     if (this.panning?.pointerId === event.pointerId) {
       this.panning = null;
+      return;
+    }
+    const names = this.namesGesture;
+    if (names?.pointerId === event.pointerId) {
+      this.namesGesture = null;
+      const dragged = this.draggedFeature();
+      this.draggedFeature.set(null);
+      const vp = this.viewport();
+      if (dragged && event.type === 'pointerup') this.facade.moveFeature(dragged.id, dragged.xKm, dragged.yKm);
+      else if (!names.moved && !names.hitId && vp && event.type === 'pointerup') {
+        this.facade.addFeatureAt(screenToCell(vp, event.offsetX, event.offsetY));
+      }
       return;
     }
     this.facade.pointerUp();
@@ -289,6 +341,7 @@ export class MapCanvas {
 
     if (this.facade.rendered()) {
       this.drawRendered(ctx, vp, map);
+      this.drawNames(ctx, vp, map);
       return; // dirty rects stay queued for the design raster
     }
 
@@ -300,6 +353,7 @@ export class MapCanvas {
     const wind = this.facade.windOverlay();
     if (wind) drawWindOverlay(ctx, vp, wind.result, wind.yearPhase);
     this.drawBrushCursor(ctx, vp, map);
+    this.drawNames(ctx, vp, map);
 
     const pins = this.facade.latitudePins();
     const edges = this.facade.displayedLatitudes();
@@ -340,6 +394,15 @@ export class MapCanvas {
       ctx.textAlign = 'center';
       ctx.fillText('Préparation du rendu…', vp.widthPx / 2, vp.heightPx / 2);
     }
+  }
+
+  private drawNames(ctx: CanvasRenderingContext2D, vp: Viewport, map: WorldMap): void {
+    const selectedId = this.facade.selectedFeatureId();
+    this.placedLabels = layoutLabels(this.facade.features(), vp, map.settings.baseCellKm, canvasTextMeasure(ctx), {
+      selectedId,
+      dragged: this.draggedFeature(),
+    });
+    drawLabels(ctx, this.placedLabels, selectedId);
   }
 
   /** Which ruler handle (pin, tropic, polar circle) is within reach of screen row `sy`; pins win ties. */

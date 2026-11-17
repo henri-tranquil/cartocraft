@@ -3,6 +3,8 @@ import { computed, inject, Injectable, signal } from '@angular/core';
 import { Command, MapChange } from '../domain/commands/command';
 import { CommandHistory } from '../domain/commands/command-history';
 import { RenameMapCommand } from '../domain/commands/rename-map-command';
+import { FeatureEditCommand } from '../domain/commands/feature-edit-command';
+import { createFeature, FeatureTemplate, ImportanceRank, MapFeature, MAX_FEATURE_NAME_LENGTH } from '../domain/features/map-feature';
 import { MapFactory } from '../domain/map/map-factory';
 import { MapSummary } from '../domain/map/map-repository';
 import { BeyondEdge, BeyondEdges, gridSizeCells, MapSettings, validateMapSettings } from '../domain/map/map-settings';
@@ -93,6 +95,10 @@ export class EditorFacade {
   private readonly tiltPreviewState = signal<number | null>(null);
   /** Two pins while the latitude ruler is being set up; null otherwise. */
   private readonly latitudePinsState = signal<readonly [LatitudePin, LatitudePin] | null>(null);
+  /** Names section open: clicks on the map place and select names. */
+  private readonly namesEditingState = signal(false);
+  private readonly selectedFeatureIdState = signal<string | null>(null);
+  private readonly newPlaceTemplateState = signal<FeatureTemplate>({ kind: 'settlement', size: 'village' });
   private readonly tools: Record<Exclude<ToolId, 'pan'>, EditorTool> = {
     raise: new RaiseTerrainTool(() => this.brushState()),
     lower: new LowerTerrainTool(() => this.brushState()),
@@ -110,6 +116,15 @@ export class EditorFacade {
   readonly error = this.errorState.asReadonly();
   readonly fileExtension = this.fileCodec.fileExtension;
   readonly activeTool = this.activeToolState.asReadonly();
+  readonly namesEditing = this.namesEditingState.asReadonly();
+  readonly selectedFeatureId = this.selectedFeatureIdState.asReadonly();
+  readonly newPlaceTemplate = this.newPlaceTemplateState.asReadonly();
+  /** A copy: the map's array is mutated in place, a new reference lets `computed`s see the change. */
+  readonly features = computed<readonly MapFeature[]>(() => {
+    this.store.revision();
+    return [...(this.store.map()?.features ?? [])];
+  });
+  readonly selectedFeature = computed(() => this.features().find((f) => f.id === this.selectedFeatureIdState()) ?? null);
   readonly latitudePins = this.latitudePinsState.asReadonly();
   readonly settings = computed(() => {
     this.store.revision();
@@ -481,6 +496,63 @@ export class EditorFacade {
     this.autoSave.markChanged(result.change.terrainTiles, result.change.metadata);
     this.climate.invalidate();
     this.historyRevision.update((r) => r + 1);
+  }
+
+  // --- Names ---
+
+  setNamesEditing(enabled: boolean): void {
+    this.namesEditingState.set(enabled);
+    if (!enabled) this.selectedFeatureIdState.set(null);
+  }
+
+  setNewPlaceTemplate(template: FeatureTemplate): void {
+    this.newPlaceTemplateState.set(template);
+  }
+
+  selectFeature(id: string | null): void {
+    this.selectedFeatureIdState.set(id);
+  }
+
+  /** New place of the current template at `point`, selected so that its name can be typed right away. */
+  addFeatureAt(point: CellPoint): void {
+    const map = this.store.map();
+    if (!map || !this.namesEditingState() || !isInside(map.terrain.baseAltitudeM, Math.floor(point.x), Math.floor(point.y))) return;
+    const km = map.settings.baseCellKm;
+    const feature = createFeature(this.newPlaceTemplateState(), crypto.randomUUID(), '', round2(point.x * km), round2(point.y * km));
+    this.execute(new FeatureEditCommand('Ajouter un lieu', null, feature));
+    this.selectedFeatureIdState.set(feature.id);
+  }
+
+  renameFeature(id: string, name: string): void {
+    const trimmed = name.trim().slice(0, MAX_FEATURE_NAME_LENGTH);
+    this.replaceFeature(id, 'Nommer un lieu', (f) => (f.name === trimmed ? f : { ...f, name: trimmed }));
+  }
+
+  setFeatureRank(id: string, rank: ImportanceRank): void {
+    this.replaceFeature(id, 'Changer l’importance d’un lieu', (f) => (f.rank === rank ? f : { ...f, rank }));
+  }
+
+  /** Changes the type; the importance follows the new type's default. */
+  setFeatureTemplate(id: string, template: FeatureTemplate): void {
+    this.replaceFeature(id, 'Changer le type d’un lieu', (f) => createFeature(template, f.id, f.name, f.xKm, f.yKm));
+  }
+
+  moveFeature(id: string, xKm: number, yKm: number): void {
+    this.replaceFeature(id, 'Déplacer un lieu', (f) => ({ ...f, xKm: round2(xKm), yKm: round2(yKm) }));
+  }
+
+  removeFeature(id: string): void {
+    const feature = this.features().find((f) => f.id === id);
+    if (!feature) return;
+    this.execute(new FeatureEditCommand('Supprimer un lieu', feature, null));
+    if (this.selectedFeatureIdState() === id) this.selectedFeatureIdState.set(null);
+  }
+
+  private replaceFeature(id: string, label: string, change: (feature: MapFeature) => MapFeature): void {
+    const before = this.features().find((f) => f.id === id);
+    if (!before) return;
+    const after = change(before);
+    if (after !== before && JSON.stringify(after) !== JSON.stringify(before)) this.execute(new FeatureEditCommand(label, before, after));
   }
 
   // --- Editing ---

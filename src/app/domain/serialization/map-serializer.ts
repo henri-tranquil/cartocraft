@@ -1,3 +1,5 @@
+import { parseFeatures } from './feature-codec';
+import { MapFeature } from '../features/map-feature';
 import { BEYOND_EDGE_VALUES, BeyondEdge, MapSettings, validateMapSettings } from '../map/map-settings';
 import { CURRENT_FORMAT_VERSION, WorldMap } from '../map/world-map';
 import { DEFAULT_TILE_SIZE } from '../terrain/tiled-grid';
@@ -14,7 +16,7 @@ export interface GridDescriptor {
   readonly heightCells: number;
 }
 
-/** Header of the CURRENT format (v1). Older headers are migrated to this shape. */
+/** Header of the CURRENT format. Older headers are migrated to this shape. */
 export interface MapHeader {
   readonly formatVersion: number;
   readonly id: string;
@@ -23,6 +25,7 @@ export interface MapHeader {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly grids: readonly GridDescriptor[];
+  readonly features: readonly MapFeature[];
 }
 
 export function mapToHeader(map: WorldMap): MapHeader {
@@ -35,6 +38,7 @@ export function mapToHeader(map: WorldMap): MapHeader {
     createdAt: map.createdAt,
     updatedAt: map.updatedAt,
     grids: [{ block: BASE_ALTITUDE_BLOCK, type: 'int16', widthCells: grid.widthCells, heightCells: grid.heightCells }],
+    features: map.features,
   };
 }
 
@@ -65,6 +69,7 @@ export function mapFromDocument(
     formatVersion: CURRENT_FORMAT_VERSION,
     settings: header.settings,
     terrain: { baseAltitudeM: int16GridFromBytes(bytes, baseGrid.widthCells, baseGrid.heightCells, tileSize) },
+    features: [...header.features],
     createdAt: header.createdAt,
     updatedAt: header.updatedAt,
   };
@@ -145,5 +150,6 @@ function parseHeader(header: Readonly<Record<string, unknown>>): MapHeader {
     createdAt: requireString(header, 'createdAt'),
     updatedAt: requireString(header, 'updatedAt'),
     grids: grids.map(parseGrid),
+    features: parseFeatures(header['features']),
   };
 }

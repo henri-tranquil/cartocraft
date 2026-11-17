@@ -87,6 +87,29 @@ describe('EditorFacade', () => {
     expect(facade.undoLabel()).toBeNull();
   });
 
+  it('places, names and moves a place, each step undoable', async () => {
+    await facade.createBlankMap(SMALL_MAP, 'A');
+    facade.addFeatureAt({ x: 10, y: 20 }); // ignored outside the Names section
+    expect(facade.features()).toHaveLength(0);
+
+    facade.setNamesEditing(true);
+    facade.setNewPlaceTemplate({ kind: 'settlement', size: 'city' });
+    facade.addFeatureAt({ x: 10, y: 20 });
+    const id = facade.selectedFeatureId();
+    expect(facade.selectedFeature()).toMatchObject({ kind: 'settlement', size: 'city', rank: 2, xKm: 10, yKm: 20, name: '' });
+
+    facade.renameFeature(id!, '  Port-Royal ');
+    facade.moveFeature(id!, 15, 25);
+    expect(facade.selectedFeature()).toMatchObject({ name: 'Port-Royal', xKm: 15, yKm: 25 });
+
+    facade.undo();
+    expect(facade.selectedFeature()?.xKm).toBe(10);
+    facade.undo();
+    facade.undo();
+    expect(facade.features()).toHaveLength(0);
+    expect(facade.selectedFeature()).toBeNull();
+  });
+
   it('duplicates and deletes, closing the current map if deleted', async () => {
     await facade.createBlankMap(SMALL_MAP, 'A');
     const id = facade.currentMapId()!;

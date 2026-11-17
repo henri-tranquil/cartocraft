@@ -30,6 +30,7 @@ export const MapFactory = {
       formatVersion: CURRENT_FORMAT_VERSION,
       settings,
       terrain: { baseAltitudeM: createInt16TiledGrid(widthCells, heightCells, BLANK_ALTITUDE_M) },
+      features: [],
       createdAt: identity.nowIso,
       updatedAt: identity.nowIso,
     };

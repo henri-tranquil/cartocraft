@@ -26,7 +26,13 @@ export type IconName =
   | 'altitude'
   | 'fit'
   | 'render'
-  | 'sketch';
+  | 'sketch'
+  | 'capital'
+  | 'city'
+  | 'town'
+  | 'village'
+  | 'peak'
+  | 'land';
 
 /**
  * Inline stroke pictograms (they follow `currentColor`). Decorative by default:
@@ -77,6 +83,25 @@ export type IconName =
         }
         @case ('water') {
           <path d="M12 3c4 5 6 8 6 11a6 6 0 01-12 0c0-3 2-6 6-11z" />
+        }
+        @case ('capital') {
+          <circle cx="12" cy="12" r="7" />
+          <circle cx="12" cy="12" r="2.5" fill="currentColor" />
+        }
+        @case ('city') {
+          <circle cx="12" cy="12" r="5.5" fill="currentColor" />
+        }
+        @case ('town') {
+          <circle cx="12" cy="12" r="4.5" />
+        }
+        @case ('village') {
+          <circle cx="12" cy="12" r="2.5" fill="currentColor" />
+        }
+        @case ('peak') {
+          <path d="M4 19L12 5l8 14z" />
+        }
+        @case ('land') {
+          <path d="M4 18c1-6 4-11 9-12 4 1 6 5 7 9-3 3-9 4-16 3z" />
         }
         @case ('names') {
           <path d="M5 20L12 4l7 16M8 14h8" />

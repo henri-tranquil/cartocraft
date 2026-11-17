@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, effect, HostListener, inj
 import { EditorFacade, SketchMapRequest } from '../../application/editor-facade';
 import { SaveStatus } from '../../application/auto-save';
 import { ClimatePanel } from '../climate-panel/climate-panel';
+import { NamesPanel } from '../names-panel/names-panel';
 import { Icon, IconName } from '../icon/icon';
 import { MapCanvas } from '../map-canvas/map-canvas';
 import { MapList } from '../map-list/map-list';
@@ -25,7 +26,7 @@ const SECTIONS: readonly SectionDef[] = [
   { id: 'relief', icon: 'relief', short: 'Relief', label: 'Relief : sculpter le terrain', available: true },
   { id: 'climate', icon: 'climate', short: 'Climat', label: 'Climat : latitudes, températures, saisons', available: true },
   { id: 'water', icon: 'water', short: 'Eaux', label: 'Eaux — bientôt', available: false },
-  { id: 'names', icon: 'names', short: 'Noms', label: 'Noms — bientôt', available: false },
+  { id: 'names', icon: 'names', short: 'Noms', label: 'Noms : villes, sommets, mers, régions', available: true },
   { id: 'render', icon: 'render', short: 'Rendu', label: 'Rendu : la carte illustrée, à l’ancienne', available: true },
 ];
 
@@ -44,7 +45,7 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
 @Component({
   selector: 'cc-editor-shell',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ClimatePanel, Icon, MapCanvas, MapList, NewMapDialog, SketchImportDialog, ToolPanel],
+  imports: [ClimatePanel, Icon, MapCanvas, MapList, NamesPanel, NewMapDialog, SketchImportDialog, ToolPanel],
   host: {
     '(window:keydown)': 'onKeydown($event)',
   },
@@ -98,8 +99,11 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
           @case ('climate') {
             <cc-climate-panel />
           }
+          @case ('names') {
+            <cc-names-panel />
+          }
           @case ('render') {
-            <p class="hint">Vue « carte ancienne », en lecture seule : le clic déplace la carte. Les pictos, les fleuves et les noms viendront ensuite.</p>
+            <p class="hint">Vue « carte ancienne », en lecture seule : le clic déplace la carte. Les fleuves viendront ensuite.</p>
           }
         }
         <div class="map-actions">
@@ -251,6 +255,7 @@ export class EditorShell implements OnInit {
     // Only the Relief panel edits the terrain; elsewhere a click just moves the map.
     effect(() => this.facade.setEditingEnabled(this.activeSection() === 'relief'));
     effect(() => this.facade.setRendered(this.activeSection() === 'render'));
+    effect(() => this.facade.setNamesEditing(this.activeSection() === 'names'));
     // The latitude ruler belongs to the Climate panel: leaving it closes the ruler.
     effect(() => {
       if (this.activeSection() !== 'climate') this.facade.stopLatitudeEditing();
@@ -332,6 +337,16 @@ export class EditorShell implements OnInit {
     // Let text fields keep their native undo.
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
     if (!(event.ctrlKey || event.metaKey)) {
+      const selected = this.facade.selectedFeatureId();
+      if (selected && event.key === 'Escape') {
+        this.facade.selectFeature(null);
+        return;
+      }
+      if (selected && (event.key === 'Delete' || event.key === 'Backspace')) {
+        event.preventDefault();
+        this.facade.removeFeature(selected);
+        return;
+      }
       const tool = event.altKey ? null : toolForKey(event.key);
       if (tool && this.facade.hasMap()) {
         this.facade.selectTool(tool);
