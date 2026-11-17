@@ -34,7 +34,9 @@ export type IconName =
   | 'peak'
   | 'land'
   | 'zone'
-  | 'bay';
+  | 'bay'
+  | 'range'
+  | 'river';
 
 /**
  * Inline stroke pictograms (they follow `currentColor`). Decorative by default:
@@ -112,6 +114,13 @@ export type IconName =
         @case ('bay') {
           <path d="M3 6c4 0 5 3 9 3s5-3 9-3" />
           <path d="M4 20c1-6 3-9 8-9s7 3 8 9" stroke-dasharray="3 2.5" />
+        }
+        @case ('range') {
+          <path d="M2 18l4-6 3 3 4-8 4 6 2-2 3 7" />
+        }
+        @case ('river') {
+          <path d="M4 3c3 3-2 6 1 9s6 1 7 4 0 4 2 5" />
+          <path d="M14 3c2 3 0 5 2 8s5 2 6 5" />
         }
         @case ('names') {
           <path d="M5 20L12 4l7 16M8 14h8" />

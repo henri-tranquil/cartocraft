@@ -135,3 +135,30 @@ export function extractRivers(
     lineBounds: Float32Array.from(bounds),
   };
 }
+
+/**
+ * River point nearest to (xCell, yCell) within `radiusCells` (ties: the larger
+ * flow), as { line, point } indices into the network; null if none.
+ * A tributary's last point is its confluence, which belongs to the main
+ * river, so it is skipped: clicking a tributary names the tributary.
+ */
+export function findRiverPoint(network: RiverNetwork, xCell: number, yCell: number, radiusCells: number): { line: number; point: number } | null {
+  const { pointsCells: pts, dischargeM3s: q, starts, lineBounds: b } = network;
+  let best: { line: number; point: number } | null = null;
+  let bestD = radiusCells * radiusCells;
+  let bestQ = -1;
+  for (let k = 0; k < starts.length - 1; k++) {
+    if (xCell < b[4 * k] - radiusCells || xCell > b[4 * k + 2] + radiusCells || yCell < b[4 * k + 1] - radiusCells || yCell > b[4 * k + 3] + radiusCells) continue;
+    for (let p = starts[k]; p < starts[k + 1] - 1; p++) {
+      const dx = pts[2 * p] - xCell;
+      const dy = pts[2 * p + 1] - yCell;
+      const d = dx * dx + dy * dy;
+      if (d < bestD || (d === bestD && q[p] > bestQ)) {
+        bestD = d;
+        bestQ = q[p];
+        best = { line: k, point: p };
+      }
+    }
+  }
+  return best;
+}

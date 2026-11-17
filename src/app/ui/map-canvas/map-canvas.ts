@@ -25,9 +25,9 @@ import { windFromDirection } from '../../domain/climate/wind';
 import { drawLatitudeOverlay, LatitudeHandle, latitudeScreenY, PIN_HIT_TOLERANCE_PX, pinScreenY, tiltLines } from '../../rendering/latitude-overlay';
 import { latitudeAtRow } from '../../domain/map/latitude';
 import { canvasTextMeasure, drawLabels, drawLasso, drawZoneOutlines, labelAt, layoutLabels, PlacedLabel } from '../../rendering/label-layer';
-import { drawRivers, EDIT_RIVER_STYLE, VINTAGE_RIVER_STYLE } from '../../rendering/river-layer';
+import { drawRivers, EDIT_RIVER_STYLE, VINTAGE_RIVER_STYLE, visibleDischargeM3s } from '../../rendering/river-layer';
 import { simplifyPolyline } from '../../domain/features/polygon';
-import { isZoneTemplate } from '../../domain/features/map-feature';
+import { geometryOf } from '../../domain/features/map-feature';
 import { LABEL_STYLE } from '../../rendering/style/label-style';
 
 const WHEEL_ZOOM_SPEED = 0.0015;
@@ -39,6 +39,8 @@ const CLICK_SLOP_PX = 4;
 /** Lasso: a new point every 3 px of pointer travel, simplified to 1.5 px on release. */
 const LASSO_STEP_PX = 3;
 const LASSO_TOLERANCE_PX = 1.5;
+/** A click this close to a river (screen px) names it. */
+const RIVER_PICK_PX = 10;
 
 @Component({
   selector: 'cc-map-canvas',
@@ -126,7 +128,7 @@ export class MapCanvas {
 
   protected readonly cursor = computed(() => {
     if (this.hoveredPin() !== null) return 'ns-resize';
-    if (this.facade.namesEditing()) return this.hoveringLabel() ? 'move' : isZoneTemplate(this.facade.newPlaceTemplate()) ? 'crosshair' : 'copy';
+    if (this.facade.namesEditing()) return this.hoveringLabel() ? 'move' : geometryOf(this.facade.newPlaceTemplate()) === 'point' ? 'copy' : 'crosshair';
     return this.facade.effectiveTool() === 'pan' ? 'grab' : 'crosshair';
   });
 
@@ -216,7 +218,7 @@ export class MapCanvas {
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       const hit = labelAt(this.placedLabels, event.offsetX, event.offsetY);
       if (hit) this.facade.selectFeature(hit.feature.id);
-      else if (isZoneTemplate(this.facade.newPlaceTemplate())) this.lasso.set([event.offsetX, event.offsetY]);
+      else if (this.drawsShape()) this.lasso.set([event.offsetX, event.offsetY]);
       this.namesGesture = { pointerId: event.pointerId, startX: event.offsetX, startY: event.offsetY, lastX: event.offsetX, lastY: event.offsetY, hitId: hit?.feature.id ?? null, moved: false };
       return;
     }
@@ -307,11 +309,15 @@ export class MapCanvas {
             const c = screenToCell(vp, outline[i], outline[i + 1]);
             cells.push(c.x, c.y);
           }
-          this.facade.addZone(cells);
+          if (geometryOf(this.facade.newPlaceTemplate()) === 'line') this.facade.addRange(cells);
+          else this.facade.addZone(cells);
         }
-      } else if (dragged && event.type === 'pointerup') this.facade.moveFeature(dragged.id, dragged.xKm, dragged.yKm);
-      else if (!names.moved && !names.hitId && vp && event.type === 'pointerup') {
-        this.facade.addFeatureAt(screenToCell(vp, event.offsetX, event.offsetY));
+      } else if (dragged && event.type === 'pointerup') {
+        this.facade.moveFeature(dragged.id, dragged.xKm, dragged.yKm, vp ? RIVER_PICK_PX / vp.pixelsPerCell : 1);
+      } else if (!names.moved && !names.hitId && vp && event.type === 'pointerup') {
+        const cell = screenToCell(vp, event.offsetX, event.offsetY);
+        if (geometryOf(this.facade.newPlaceTemplate()) === 'river') this.facade.addRiverNameAt(cell, RIVER_PICK_PX / vp.pixelsPerCell);
+        else this.facade.addFeatureAt(cell);
       }
       return;
     }
@@ -435,13 +441,22 @@ export class MapCanvas {
   private drawNames(ctx: CanvasRenderingContext2D, vp: Viewport, map: WorldMap): void {
     const selectedId = this.facade.selectedFeatureId();
     if (this.facade.namesEditing()) drawZoneOutlines(ctx, vp, map.settings.baseCellKm, this.facade.features(), selectedId);
+    const hydrology = this.facade.renderHydrology();
+    const pxPerKm = vp.pixelsPerCell / map.settings.baseCellKm;
     this.placedLabels = layoutLabels(this.facade.features(), vp, map.settings.baseCellKm, canvasTextMeasure(ctx), {
       selectedId,
       dragged: this.draggedFeature(),
+      rivers: hydrology ? { network: hydrology.rivers, minDischargeM3s: visibleDischargeM3s(EDIT_RIVER_STYLE, pxPerKm) } : null,
     });
     drawLabels(ctx, this.placedLabels, selectedId);
     const lasso = this.lasso();
-    if (lasso) drawLasso(ctx, lasso);
+    if (lasso) drawLasso(ctx, lasso, geometryOf(this.facade.newPlaceTemplate()) === 'zone');
+  }
+
+  /** The current template is drawn with a drag (zone outline, range line) rather than placed by a click. */
+  private drawsShape(): boolean {
+    const geometry = geometryOf(this.facade.newPlaceTemplate());
+    return geometry === 'zone' || geometry === 'line';
   }
 
   /** Which ruler handle (pin, tropic, polar circle) is within reach of screen row `sy`; pins win ties. */

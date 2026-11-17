@@ -128,6 +128,18 @@ describe('EditorFacade', () => {
     expect(moved?.kind === 'region' && moved.outlineKm.slice(0, 2)).toEqual([15, 10]);
   });
 
+  it('traces a range along a line and names nothing where there is no river', async () => {
+    await facade.createBlankMap(SMALL_MAP, 'A');
+    facade.setNamesEditing(true);
+    facade.setNewPlaceTemplate({ kind: 'range' });
+    facade.addRange([10, 10, 30, 12, 50, 10]);
+    expect(facade.selectedFeature()).toMatchObject({ kind: 'range', xKm: 30, yKm: 12, pathKm: [10, 10, 30, 12, 50, 10] });
+
+    facade.setNewPlaceTemplate({ kind: 'river' });
+    expect(facade.addRiverNameAt({ x: 100, y: 100 }, 5)).toBe(false); // a blank map has no river
+    expect(facade.features()).toHaveLength(1);
+  });
+
   it('duplicates and deletes, closing the current map if deleted', async () => {
     await facade.createBlankMap(SMALL_MAP, 'A');
     const id = facade.currentMapId()!;

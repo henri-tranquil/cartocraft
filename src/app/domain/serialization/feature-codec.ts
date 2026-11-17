@@ -7,6 +7,7 @@ import {
   MAX_FEATURE_NAME_LENGTH,
   MAX_OUTLINE_POINTS,
   MIN_OUTLINE_POINTS,
+  MIN_PATH_POINTS,
   SETTLEMENT_SIZES,
   SettlementSize,
 } from '../features/map-feature';
@@ -47,20 +48,30 @@ function parseFeature(item: unknown, index: number): MapFeature {
     case 'region': {
       if (!isOneOf<LabelTone>(item['tone'], LABEL_TONES)) throw invalid('ton');
       const outline = item['outlineKm'];
-      if (
-        !Array.isArray(outline) ||
-        outline.length % 2 !== 0 ||
-        outline.length < MIN_OUTLINE_POINTS * 2 ||
-        outline.length > MAX_OUTLINE_POINTS * 2 ||
-        !outline.every((v: unknown) => typeof v === 'number' && Number.isFinite(v))
-      ) {
-        throw invalid('contour');
-      }
-      return { ...base, kind, tone: item['tone'], outlineKm: outline as number[] };
+      if (!isPointList(outline, MIN_OUTLINE_POINTS)) throw invalid('contour');
+      return { ...base, kind, tone: item['tone'], outlineKm: outline };
+    }
+    case 'river':
+      return { ...base, kind };
+    case 'range': {
+      const path = item['pathKm'];
+      if (!isPointList(path, MIN_PATH_POINTS)) throw invalid('tracé');
+      return { ...base, kind, pathKm: path };
     }
     default:
       throw invalid('type');
   }
+}
+
+/** Flat [x0, y0, …] list of finite numbers with a sane number of points. */
+function isPointList(value: unknown, minPoints: number): value is number[] {
+  return (
+    Array.isArray(value) &&
+    value.length % 2 === 0 &&
+    value.length >= minPoints * 2 &&
+    value.length <= MAX_OUTLINE_POINTS * 2 &&
+    value.every((v: unknown) => typeof v === 'number' && Number.isFinite(v))
+  );
 }
 
 function isOneOf<T>(value: unknown, allowed: readonly T[]): value is T {

@@ -10,7 +10,7 @@ export interface JapanPlace {
   readonly template: FeatureTemplate;
   /** [lat, lon] for a point. */
   readonly at?: readonly [number, number];
-  /** [lat, lon, lat, lon, …] for a zone. */
+  /** [lat, lon, lat, lon, …] for a zone (closed) or a range (open line along the crest). */
   readonly outline?: readonly number[];
   /** Overrides the template's default importance. */
   readonly rank?: ImportanceRank;
@@ -24,6 +24,9 @@ const sea: FeatureTemplate = { kind: 'label', tone: 'water' };
 const land: FeatureTemplate = { kind: 'label', tone: 'land' };
 const plain: FeatureTemplate = { kind: 'region', tone: 'land' };
 const bay: FeatureTemplate = { kind: 'region', tone: 'water' };
+const range: FeatureTemplate = { kind: 'range' };
+/** `at` is a point near the river's course, a few tens of km above its mouth: snapped onto the computed river. */
+const river: FeatureTemplate = { kind: 'river' };
 
 export const JAPAN_PLACES: readonly JapanPlace[] = [
   // Cities
@@ -124,4 +127,34 @@ export const JAPAN_PLACES: readonly JapanPlace[] = [
   { name: 'Baie de Funka', template: bay, outline: [42.55, 140.4, 42.4, 140.95, 42.1, 140.9, 42.05, 140.6, 42.3, 140.3] },
   { name: 'Baie de Toyama', template: bay, outline: [36.95, 137.1, 36.95, 137.45, 36.75, 137.4, 36.8, 137.1] },
   { name: 'Golfe de Pierre-le-Grand', template: bay, outline: [43.3, 131.4, 43.0, 133.0, 42.4, 132.8, 42.6, 131.2] },
+
+  // Ranges (lines along the crest)
+  { name: 'Monts Ōu', template: range, outline: [41.0, 140.95, 40.0, 140.85, 39.0, 140.75, 38.0, 140.5, 37.2, 140.0] },
+  { name: 'Monts Kitakami', template: range, outline: [40.1, 141.6, 39.6, 141.55, 39.1, 141.45] },
+  { name: 'Monts Hida', template: range, outline: [36.85, 137.65, 36.35, 137.62, 35.95, 137.7] },
+  { name: 'Monts Kiso', template: range, outline: [35.95, 137.82, 35.5, 137.88] },
+  { name: 'Monts Akaishi', template: range, outline: [35.8, 138.22, 35.25, 138.15] },
+  { name: 'Monts Chūgoku', template: range, outline: [35.0, 132.3, 35.3, 133.2, 35.2, 134.0, 35.25, 134.6] },
+  { name: 'Monts de Shikoku', template: range, outline: [33.6, 132.8, 33.8, 133.4, 33.85, 134.2] },
+  { name: 'Monts Kyūshū', template: range, outline: [32.9, 131.15, 32.5, 131.1, 32.15, 131.05] },
+  { name: 'Monts Taebaek', template: range, outline: [38.2, 128.45, 37.3, 129.0, 36.4, 129.2] },
+  { name: 'Sikhote-Aline', template: range, outline: [43.4, 133.9, 44.4, 135.2, 45.5, 136.6] },
+
+  // Rivers (named computed rivers)
+  { name: 'Shinano', template: river, at: [37.45, 138.85] },
+  { name: 'Agano', template: river, at: [37.75, 139.4] },
+  { name: 'Ishikari', template: river, at: [43.2, 141.75] },
+  { name: 'Tone', template: river, at: [36.3, 139.15] },
+  { name: 'Kitakami', template: river, at: [39.0, 141.12] },
+  { name: 'Mogami', template: river, at: [38.82, 139.98] },
+  { name: 'Kiso', template: river, at: [35.4, 136.9] },
+  { name: 'Tenryū', template: river, at: [35.3, 137.85] },
+  { name: 'Teshio', template: river, at: [44.93, 141.82] },
+  { name: 'Tokachi', template: river, at: [42.95, 143.2] },
+  { name: 'Yodo', template: river, at: [34.85, 135.65] },
+  { name: 'Chikugo', template: river, at: [33.3, 130.6] },
+  { name: 'Omono', template: river, at: [39.6, 140.3] },
+  { name: 'Yoneshiro', template: river, at: [40.2, 140.3] },
+  { name: 'Nakdong', template: river, at: [35.6, 128.4] },
+  { name: 'Tumen', template: river, at: [42.75, 130.2] },
 ];

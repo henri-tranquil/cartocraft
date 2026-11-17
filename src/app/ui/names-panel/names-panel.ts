@@ -4,7 +4,7 @@ import {
   FeatureTemplate,
   IMPORTANCE_RANKS,
   ImportanceRank,
-  isZoneTemplate,
+  geometryOf,
   MapFeature,
   MAX_FEATURE_NAME_LENGTH,
   templateOf,
@@ -28,6 +28,8 @@ const TEMPLATES: readonly TemplateDef[] = [
   { template: { kind: 'label', tone: 'water' }, icon: 'water', short: 'Mer', title: 'Nom d’eau : mer, détroit, lac… (un point)' },
   { template: { kind: 'region', tone: 'land' }, icon: 'zone', short: 'Zone', title: 'Zone de terre : plaine, plateau, région… Glissez pour dessiner son contour' },
   { template: { kind: 'region', tone: 'water' }, icon: 'bay', short: 'Golfe', title: 'Zone d’eau : baie, golfe, lagune… Glissez pour dessiner son contour' },
+  { template: { kind: 'range' }, icon: 'range', short: 'Chaîne', title: 'Chaîne de montagnes : glissez le long de la crête, le nom suivra la ligne' },
+  { template: { kind: 'river' }, icon: 'river', short: 'Fleuve', title: 'Nommer un fleuve calculé : cliquez dessus (le nom suit son cours)' },
 ];
 
 /** "Visible from…": the order of magnitude of the area on screen when the name appears (on a ~1000 px wide map). */
@@ -49,10 +51,19 @@ function sameTemplate(a: FeatureTemplate, b: FeatureTemplate): boolean {
   imports: [Icon],
   template: `
     <p class="hint">
-      @if (drawingZones()) {
-        Glissez sur la carte pour dessiner le contour de la zone (clic droit : déplacer la carte). Son nom n’apparaît que s’il y tient : zoomez pour les petites zones.
-      } @else {
-        Cliquez sur la carte pour poser un lieu, glissez un nom pour le déplacer. Plus on zoome, plus les petits lieux apparaissent.
+      @switch (newGeometry()) {
+        @case ('zone') {
+          Glissez sur la carte pour dessiner le contour de la zone (clic droit : déplacer la carte). Son nom n’apparaît que s’il y tient : zoomez pour les petites zones.
+        }
+        @case ('line') {
+          Glissez le long de la crête pour tracer la chaîne (clic droit : déplacer la carte). Le nom suit la ligne s’il y tient.
+        }
+        @case ('river') {
+          Cliquez sur un fleuve pour le nommer ; glissez son nom pour le faire glisser le long du cours. Les fleuves apparaissent quand le climat est calculé.
+        }
+        @default {
+          Cliquez sur la carte pour poser un lieu, glissez un nom pour le déplacer. Plus on zoome, plus les petits lieux apparaissent.
+        }
       }
     </p>
     <div class="templates" role="radiogroup" aria-label="Type du prochain lieu">
@@ -168,12 +179,12 @@ export class NamesPanel {
     });
   }
 
-  protected readonly drawingZones = computed(() => isZoneTemplate(this.facade.newPlaceTemplate()));
+  protected readonly newGeometry = computed(() => geometryOf(this.facade.newPlaceTemplate()));
 
-  /** A point cannot become a zone (it has no outline), nor the reverse. */
+  /** A type change keeps the geometry: a point cannot become a zone (it has no outline), nor a river a range. */
   protected compatibleTemplates(feature: MapFeature): readonly TemplateDef[] {
-    const zone = feature.kind === 'region';
-    return TEMPLATES.filter((def) => isZoneTemplate(def.template) === zone);
+    const geometry = geometryOf(templateOf(feature));
+    return TEMPLATES.filter((def) => geometryOf(def.template) === geometry);
   }
 
   protected isNewTemplate(template: FeatureTemplate): boolean {

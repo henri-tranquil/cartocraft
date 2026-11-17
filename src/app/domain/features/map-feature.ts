@@ -5,7 +5,8 @@
  * Discriminated union on `kind`: `switch (feature.kind)` narrows the type,
  * and the compiler flags any switch that forgets a kind.
  *
- * Still to come: ranges (polylines), named rivers (step 5), curved labels.
+ * Rivers are not stored: a river name keeps an anchor on the computed river
+ * and follows whatever course the terrain gives it.
  */
 
 /**
@@ -55,8 +56,24 @@ export interface RegionFeature extends FeatureBase {
   readonly outlineKm: readonly number[];
 }
 
+/**
+ * Name of a COMPUTED river. (xKm, yKm) is an anchor on its course: the name
+ * is drawn along the river line passing nearest to it (the course itself is
+ * recomputed from the terrain, never stored).
+ */
+export interface RiverFeature extends FeatureBase {
+  readonly kind: 'river';
+}
+
+/** A mountain range drawn as a line along its crest; the name follows it. (xKm, yKm) = middle of the line. */
+export interface RangeFeature extends FeatureBase {
+  readonly kind: 'range';
+  /** Open polyline, flat [x0, y0, x1, y1, …] in km. */
+  readonly pathKm: readonly number[];
+}
+
 /** Immutable values: an edit replaces the whole object (cheap, and undo just keeps the old one). */
-export type MapFeature = SettlementFeature | PeakFeature | LabelFeature | RegionFeature;
+export type MapFeature = SettlementFeature | PeakFeature | LabelFeature | RegionFeature | RiverFeature | RangeFeature;
 export type FeatureKind = MapFeature['kind'];
 
 /** What the "new place" buttons create. */
@@ -64,7 +81,25 @@ export type FeatureTemplate =
   | { readonly kind: 'settlement'; readonly size: SettlementSize }
   | { readonly kind: 'peak' }
   | { readonly kind: 'label'; readonly tone: LabelTone }
-  | { readonly kind: 'region'; readonly tone: LabelTone };
+  | { readonly kind: 'region'; readonly tone: LabelTone }
+  | { readonly kind: 'river' }
+  | { readonly kind: 'range' };
+
+/** How a feature is placed: one click, a closed outline, a click on a river, or a drawn line. */
+export type FeatureGeometry = 'point' | 'zone' | 'river' | 'line';
+
+export function geometryOf(template: FeatureTemplate): FeatureGeometry {
+  switch (template.kind) {
+    case 'region':
+      return 'zone';
+    case 'river':
+      return 'river';
+    case 'range':
+      return 'line';
+    default:
+      return 'point';
+  }
+}
 
 /** Default importance: a capital shows on the whole-map view, a village only when zoomed in. */
 export function defaultRank(template: FeatureTemplate): ImportanceRank {
@@ -76,19 +111,21 @@ export function defaultRank(template: FeatureTemplate): ImportanceRank {
     case 'label':
       return template.tone === 'water' ? 1 : 2;
     case 'region':
-      // A zone's name already hides itself until it fits in the zone on screen.
+    case 'river':
+    case 'range':
+      // These names already hide themselves until they fit (in the zone, along the line).
       return 1;
   }
 }
 
-/** `outlineKm` is used by zones only (a zone needs at least 3 points). */
+/** `shapeKm`: the outline of a zone (≥ 3 points) or the line of a range (≥ 2 points); ignored otherwise. */
 export function createFeature(
   template: FeatureTemplate,
   id: string,
   name: string,
   xKm: number,
   yKm: number,
-  outlineKm: readonly number[] = [],
+  shapeKm: readonly number[] = [],
 ): MapFeature {
   const base = { id, name, rank: defaultRank(template), xKm, yKm };
   switch (template.kind) {
@@ -99,8 +136,13 @@ export function createFeature(
     case 'label':
       return { ...base, kind: 'label', tone: template.tone };
     case 'region':
-      if (outlineKm.length < MIN_OUTLINE_POINTS * 2) throw new Error('A zone needs at least 3 points');
-      return { ...base, kind: 'region', tone: template.tone, outlineKm };
+      if (shapeKm.length < MIN_OUTLINE_POINTS * 2) throw new Error('A zone needs at least 3 points');
+      return { ...base, kind: 'region', tone: template.tone, outlineKm: shapeKm };
+    case 'river':
+      return { ...base, kind: 'river' };
+    case 'range':
+      if (shapeKm.length < MIN_PATH_POINTS * 2) throw new Error('A range needs at least 2 points');
+      return { ...base, kind: 'range', pathKm: shapeKm };
   }
 }
 
@@ -112,9 +154,19 @@ export function templateOf(feature: MapFeature): FeatureTemplate {
     case 'peak':
       return { kind: 'peak' };
     case 'label':
+      return { kind: 'label', tone: feature.tone };
     case 'region':
-      return { kind: feature.kind, tone: feature.tone };
+      return { kind: 'region', tone: feature.tone };
+    case 'river':
+      return { kind: 'river' };
+    case 'range':
+      return { kind: 'range' };
   }
+}
+
+/** The stored shape (zone outline or range line), empty for point-like features. */
+export function shapeOf(feature: MapFeature): readonly number[] {
+  return feature.kind === 'region' ? feature.outlineKm : feature.kind === 'range' ? feature.pathKm : [];
 }
 
 export function isZoneTemplate(template: FeatureTemplate): boolean {
@@ -122,6 +174,7 @@ export function isZoneTemplate(template: FeatureTemplate): boolean {
 }
 
 export const MIN_OUTLINE_POINTS = 3;
+export const MIN_PATH_POINTS = 2;
 export const MAX_OUTLINE_POINTS = 2000;
 
 export const MAX_FEATURE_NAME_LENGTH = 80;

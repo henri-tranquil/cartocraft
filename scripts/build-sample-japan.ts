@@ -25,6 +25,9 @@ import { exportMapToBlob } from '../src/app/infrastructure/persistence/map-file'
 import { SAMPLE_JAPAN } from '../src/app/application/samples';
 import { createFeature, MapFeature } from '../src/app/domain/features/map-feature';
 import { poleOfInaccessibility } from '../src/app/domain/features/polygon';
+import { computeClimateRun } from '../src/app/domain/climate/climate-run';
+import { buildClimateInput } from '../src/app/application/climate';
+import { RiverNetwork } from '../src/app/domain/hydrology/rivers';
 import { JAPAN_PLACES } from './japan-places';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -115,11 +118,37 @@ function projectKm(lat: number, lon: number): [number, number] {
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
-function japanFeatures(): MapFeature[] {
-  return JAPAN_PLACES.map((place, i) => {
+/** Anchors are given roughly: snap each onto the BIGGEST computed river within this distance. */
+const RIVER_SNAP_CELLS = 8;
+
+function snapToRiver(network: RiverNetwork, x: number, y: number): [number, number] | null {
+  let best = -1;
+  for (let p = 0; p < network.dischargeM3s.length; p++) {
+    const dx = network.pointsCells[2 * p] - x;
+    const dy = network.pointsCells[2 * p + 1] - y;
+    if (dx * dx + dy * dy <= RIVER_SNAP_CELLS ** 2 && (best < 0 || network.dischargeM3s[p] > network.dischargeM3s[best])) best = p;
+  }
+  return best < 0 ? null : [network.pointsCells[2 * best], network.pointsCells[2 * best + 1]];
+}
+
+function japanFeatures(rivers: RiverNetwork): MapFeature[] {
+  return JAPAN_PLACES.flatMap((place, i): MapFeature[] => {
     const id = `japon-${i}`;
     let feature: MapFeature;
-    if (place.outline) {
+    if (place.template.kind === 'river' && place.at) {
+      const [x, y] = projectKm(place.at[0], place.at[1]);
+      const snapped = snapToRiver(rivers, x, y);
+      if (!snapped) {
+        console.warn(`\n${place.name}: no computed river nearby, skipped`);
+        return [];
+      }
+      feature = createFeature(place.template, id, place.name, round2(snapped[0]), round2(snapped[1]));
+    } else if (place.outline && place.template.kind === 'range') {
+      const pathKm: number[] = [];
+      for (let k = 0; k < place.outline.length; k += 2) pathKm.push(...projectKm(place.outline[k], place.outline[k + 1]).map(round2));
+      const middle = Math.floor(pathKm.length / 4) * 2;
+      feature = createFeature(place.template, id, place.name, pathKm[middle], pathKm[middle + 1], pathKm);
+    } else if (place.outline) {
       const outlineKm: number[] = [];
       for (let k = 0; k < place.outline.length; k += 2) outlineKm.push(...projectKm(place.outline[k], place.outline[k + 1]).map(round2));
       const pole = poleOfInaccessibility(outlineKm, 0.5);
@@ -130,7 +159,7 @@ function japanFeatures(): MapFeature[] {
     } else {
       throw new Error(`${place.name}: no position`);
     }
-    return place.rank ? { ...feature, rank: place.rank } : feature;
+    return [place.rank ? { ...feature, rank: place.rank } : feature];
   });
 }
 
@@ -148,7 +177,9 @@ async function main(): Promise<void> {
       setCell(grid, x, y, clampInt16(Math.round(await elevationAt(lat, lon))));
     }
   }
-  map.features.push(...japanFeatures());
+  // River names snap onto the rivers the app will compute (same climate + hydrology run).
+  const { hydrology } = computeClimateRun(buildClimateInput(map));
+  map.features.push(...japanFeatures(hydrology.rivers));
   await mkdir(dirname(OUT), { recursive: true });
   const blob = await exportMapToBlob(map);
   await writeFile(OUT, Buffer.from(await blob.arrayBuffer()));

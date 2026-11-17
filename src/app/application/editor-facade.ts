@@ -7,14 +7,19 @@ import { FeatureEditCommand } from '../domain/commands/feature-edit-command';
 import {
   createFeature,
   FeatureTemplate,
+  geometryOf,
+  MIN_PATH_POINTS,
+  shapeOf,
   ImportanceRank,
   isZoneTemplate,
   MapFeature,
+  templateOf,
   MAX_FEATURE_NAME_LENGTH,
   MAX_OUTLINE_POINTS,
   MIN_OUTLINE_POINTS,
 } from '../domain/features/map-feature';
 import { poleOfInaccessibility, ringArea, translateRing } from '../domain/features/polygon';
+import { findRiverPoint } from '../domain/hydrology/rivers';
 import { MapFactory } from '../domain/map/map-factory';
 import { MapSummary } from '../domain/map/map-repository';
 import { BeyondEdge, BeyondEdges, gridSizeCells, MapSettings, validateMapSettings } from '../domain/map/map-settings';
@@ -537,7 +542,7 @@ export class EditorFacade {
   /** New place of the current template at `point`, selected so that its name can be typed right away. */
   addFeatureAt(point: CellPoint): void {
     const map = this.store.map();
-    if (!map || !this.namesEditingState() || isZoneTemplate(this.newPlaceTemplateState()) || !isInside(map.terrain.baseAltitudeM, Math.floor(point.x), Math.floor(point.y))) return;
+    if (!map || !this.namesEditingState() || geometryOf(this.newPlaceTemplateState()) !== 'point' || !isInside(map.terrain.baseAltitudeM, Math.floor(point.x), Math.floor(point.y))) return;
     const km = map.settings.baseCellKm;
     const feature = createFeature(this.newPlaceTemplateState(), crypto.randomUUID(), '', round2(point.x * km), round2(point.y * km));
     this.execute(new FeatureEditCommand('Ajouter un lieu', null, feature));
@@ -564,6 +569,45 @@ export class EditorFacade {
     this.selectedFeatureIdState.set(feature.id);
   }
 
+  /**
+   * Names the computed river nearest to `point` (within `radiusCells`): the
+   * anchor is snapped onto the river. Returns false when there is no river there.
+   */
+  addRiverNameAt(point: CellPoint, radiusCells: number): boolean {
+    const map = this.store.map();
+    const anchor = this.riverAnchor(point, radiusCells);
+    if (!map || !anchor || !this.namesEditingState() || geometryOf(this.newPlaceTemplateState()) !== 'river') return false;
+    const km = map.settings.baseCellKm;
+    const feature = createFeature({ kind: 'river' }, crypto.randomUUID(), '', round2(anchor.x * km), round2(anchor.y * km));
+    this.execute(new FeatureEditCommand('Nommer un fleuve', null, feature));
+    this.selectedFeatureIdState.set(feature.id);
+    return true;
+  }
+
+  /** New range from a line drawn along its crest (cells, flat [x0, y0, …], already simplified). */
+  addRange(pathCells: readonly number[]): void {
+    const map = this.store.map();
+    const points = pathCells.length / 2;
+    if (!map || !this.namesEditingState() || this.newPlaceTemplateState().kind !== 'range') return;
+    if (points < MIN_PATH_POINTS || points > MAX_OUTLINE_POINTS) return;
+    const km = map.settings.baseCellKm;
+    const pathKm = pathCells.map((v) => round2(v * km));
+    let lengthKm = 0;
+    for (let i = 2; i < pathKm.length; i += 2) lengthKm += Math.hypot(pathKm[i] - pathKm[i - 2], pathKm[i + 1] - pathKm[i - 1]);
+    if (lengthKm < MIN_RANGE_LENGTH_CELLS * km) return;
+    const middle = Math.floor(points / 2);
+    const feature = createFeature({ kind: 'range' }, crypto.randomUUID(), '', pathKm[2 * middle], pathKm[2 * middle + 1], pathKm);
+    this.execute(new FeatureEditCommand('Tracer une chaîne', null, feature));
+    this.selectedFeatureIdState.set(feature.id);
+  }
+
+  /** Cell centre of the river point nearest to `point`, or null. */
+  private riverAnchor(point: CellPoint, radiusCells: number): CellPoint | null {
+    const network = this.climate.hydrology()?.rivers;
+    const hit = network ? findRiverPoint(network, point.x, point.y, radiusCells) : null;
+    return network && hit ? { x: network.pointsCells[2 * hit.point], y: network.pointsCells[2 * hit.point + 1] } : null;
+  }
+
   renameFeature(id: string, name: string): void {
     const trimmed = name.trim().slice(0, MAX_FEATURE_NAME_LENGTH);
     this.replaceFeature(id, 'Nommer un lieu', (f) => (f.name === trimmed ? f : { ...f, name: trimmed }));
@@ -576,17 +620,32 @@ export class EditorFacade {
   /** Changes the type; the importance follows the new type's default. */
   setFeatureTemplate(id: string, template: FeatureTemplate): void {
     this.replaceFeature(id, 'Changer le type d’un lieu', (f) =>
-      isZoneTemplate(template) !== (f.kind === 'region') ? f : createFeature(template, f.id, f.name, f.xKm, f.yKm, f.kind === 'region' ? f.outlineKm : []),
+      geometryOf(template) !== geometryOf(templateOf(f)) ? f : createFeature(template, f.id, f.name, f.xKm, f.yKm, shapeOf(f)),
     );
   }
 
-  moveFeature(id: string, xKm: number, yKm: number): void {
+  /**
+   * Moves a place (a zone or a range moves with its shape). A river name
+   * slides along rivers: it snaps to the river nearest to the drop point
+   * (within `riverRadiusCells`) and stays put if there is none.
+   */
+  moveFeature(id: string, xKm: number, yKm: number, riverRadiusCells = 0): void {
+    const map = this.store.map();
+    const feature = this.features().find((f) => f.id === id);
+    if (map && feature?.kind === 'river') {
+      const km = map.settings.baseCellKm;
+      const anchor = this.riverAnchor({ x: xKm / km, y: yKm / km }, Math.max(1, riverRadiusCells));
+      if (!anchor) return;
+      xKm = anchor.x * km;
+      yKm = anchor.y * km;
+    }
     this.replaceFeature(id, 'Déplacer un lieu', (f): MapFeature => {
       const x = round2(xKm);
       const y = round2(yKm);
-      if (f.kind !== 'region') return { ...f, xKm: x, yKm: y };
-      // A zone moves with its name.
-      return { ...f, xKm: x, yKm: y, outlineKm: translateRing(f.outlineKm, x - f.xKm, y - f.yKm).map(round2) };
+      // A zone or a range moves with its name.
+      if (f.kind === 'region') return { ...f, xKm: x, yKm: y, outlineKm: translateRing(f.outlineKm, x - f.xKm, y - f.yKm).map(round2) };
+      if (f.kind === 'range') return { ...f, xKm: x, yKm: y, pathKm: translateRing(f.pathKm, x - f.xKm, y - f.yKm).map(round2) };
+      return { ...f, xKm: x, yKm: y };
     });
   }
 
@@ -694,6 +753,8 @@ export class EditorFacade {
 
 /** Smallest zone worth naming (cells²): below, it was surely a slip of the mouse. */
 const MIN_ZONE_AREA_CELLS = 4;
+/** Shortest range line worth naming (cells). */
+const MIN_RANGE_LENGTH_CELLS = 3;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));

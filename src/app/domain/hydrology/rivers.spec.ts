@@ -1,4 +1,4 @@
-import { computeHydrology, lineCount, RiverNetwork } from './rivers';
+import { computeHydrology, findRiverPoint, lineCount, RiverNetwork } from './rivers';
 
 /**
  * A V-shaped valley draining south into the sea: the land slopes down to the
@@ -56,5 +56,15 @@ describe('computeHydrology', () => {
     const h = 30;
     const { rivers } = computeHydrology(valley(w, h), w, h, 0, 1, new Float32Array(w * h));
     expect(lineCount(rivers)).toBe(0);
+  });
+
+  it('finds the river point nearest to a click', () => {
+    const w = 21;
+    const h = 30;
+    const { rivers } = computeHydrology(valley(w, h), w, h, 0, 1, new Float32Array(w * h).fill(20000));
+    const hit = findRiverPoint(rivers, 10.5, 15.2, 2);
+    expect(hit).not.toBeNull();
+    expect(rivers.pointsCells[2 * hit!.point]).toBe(10.5);
+    expect(findRiverPoint(rivers, 0.5, 0.5, 1)).toBeNull();
   });
 });

@@ -14,7 +14,7 @@ export interface SampleMap {
 export const SAMPLE_JAPAN: SampleMap = {
   id: 'sample-japon',
   name: 'Japon (exemple)',
-  version: 3,
+  version: 4,
   path: 'samples/japon.cartocraft',
 };
 

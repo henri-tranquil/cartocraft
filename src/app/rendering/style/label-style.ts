@@ -37,6 +37,12 @@ export const LABEL_STYLE = {
   /** Letters spread to cover this share of the zone width, at most `zoneMaxSpacingEm` apart. */
   zoneSpreadFraction: 0.6,
   zoneMaxSpacingEm: 0.9,
+  /** Range names spread over this share of their line. */
+  rangeSpreadFraction: 0.7,
+  /** River names: size grows with the flow relative to the smallest river shown. */
+  riverFontMinPx: 11,
+  riverFontMaxPx: 16,
+  riverSpacingEm: 0.12,
 } as const;
 
 export function minPxPerKm(rank: ImportanceRank): number {
