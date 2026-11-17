@@ -1,4 +1,5 @@
 import { accumulateFlow, computeDrainage, NO_RECEIVER } from './drainage';
+import { computeLakes, LakeInfo, LakeSeed } from './lakes';
 
 /**
  * From runoff to rivers.
@@ -38,6 +39,9 @@ export interface HydrologyResult {
   /** Mean annual flow through each cell, m³/s (row-major). */
   readonly dischargeM3s: Float32Array;
   readonly rivers: RiverNetwork;
+  /** Per cell: 0 = no lake, k + 1 = lake k (in the order of the input seeds). */
+  readonly lakeId: Uint16Array;
+  readonly lakes: readonly LakeInfo[];
 }
 
 export function lineCount(network: RiverNetwork): number {
@@ -51,6 +55,7 @@ export function computeHydrology(
   sea: Uint8Array,
   cellKm: number,
   runoffMm: Float32Array,
+  lakeSeeds: readonly LakeSeed[] = [],
 ): HydrologyResult {
   const n = widthCells * heightCells;
   const drainage = computeDrainage(altitudeM, widthCells, heightCells, sea);
@@ -58,19 +63,23 @@ export function computeHydrology(
   const yieldM3s = new Float32Array(n);
   for (let i = 0; i < n; i++) if (!sea[i]) yieldM3s[i] = runoffMm[i] * m3sPerMm;
   const discharge = accumulateFlow(drainage, yieldM3s);
-  const rivers = extractRivers(drainage.receiver, discharge, sea, widthCells);
-  return { widthCells, heightCells, dischargeM3s: discharge, rivers };
+  const { lakeId, lakes } = computeLakes(altitudeM, drainage.filledM, sea, widthCells, heightCells, lakeSeeds);
+  // A river ends on a lake shore like on the sea; the outflow starts again as a new line.
+  const water = lakes.length > 0 ? sea.map((s, i) => s | (lakeId[i] > 0 ? 1 : 0)) : sea;
+  const rivers = extractRivers(drainage.receiver, discharge, water, widthCells);
+  return { widthCells, heightCells, dischargeM3s: discharge, rivers, lakeId, lakes };
 }
 
 export function extractRivers(
   receiver: Int32Array,
   discharge: Float32Array,
-  sea: Uint8Array,
+  /** 1 = open water (sea or lake): rivers end on it. */
+  water: Uint8Array,
   widthCells: number,
   minDischargeM3s = MIN_RIVER_DISCHARGE_M3S,
 ): RiverNetwork {
   const n = receiver.length;
-  const isRiver = (i: number) => discharge[i] >= minDischargeM3s && !sea[i];
+  const isRiver = (i: number) => discharge[i] >= minDischargeM3s && !water[i];
 
   // For each river cell: its biggest river tributary (−1 = none: a spring).
   const mainUp = new Int32Array(n).fill(-1);
@@ -100,7 +109,7 @@ export function extractRivers(
       const r = receiver[cell];
       if (r === NO_RECEIVER) break; // leaves the map
       if (!isRiver(r)) {
-        if (sea[r]) push(r, discharge[cell]); // the mouth, on the shore
+        if (water[r]) push(r, discharge[cell]); // the mouth, on the shore
         break;
       }
       if (mainUp[r] !== cell) {

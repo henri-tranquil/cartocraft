@@ -8,6 +8,6 @@ import { ClimateInput } from './climate-model';
 export function computeClimateRun(input: ClimateInput): ClimateRun {
   const sea = computeSeaMask(input.altitudeM, input.widthCells, input.heightCells, input.seaLevelM);
   const climate = computeClimate(input, sea);
-  const hydrology = computeHydrology(input.altitudeM, input.widthCells, input.heightCells, sea, input.cellKm, climate.runoffMm);
+  const hydrology = computeHydrology(input.altitudeM, input.widthCells, input.heightCells, sea, input.cellKm, climate.runoffMm, input.lakes);
   return { climate, hydrology };
 }

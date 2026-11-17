@@ -1,4 +1,5 @@
 import { BeyondEdges } from '../map/map-settings';
+import type { LakeSeed } from '../hydrology/lakes';
 /**
  * Inputs and outputs of the climate computation. Plain data with TypedArrays
  * only, so it can cross the worker boundary (structured clone / transfer).
@@ -17,6 +18,8 @@ export interface ClimateInput {
   readonly globalTemperatureOffsetC: number;
   /** What lies beyond each edge (default: the edge's terrain continues). */
   readonly beyondEdges?: BeyondEdges;
+  /** Lakes placed on the map (seed cell + level): used by the hydrology run only. */
+  readonly lakes?: readonly LakeSeed[];
 }
 
 /** We precompute 12 monthly snapshots; the season slider interpolates between them. */

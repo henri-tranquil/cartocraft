@@ -31,6 +31,7 @@ addEventListener('message', (event: MessageEvent<ClimateWorkerRequest>) => {
           climate.snowDepthCm.buffer,
           climate.runoffMm.buffer,
           hydrology.dischargeM3s.buffer,
+          hydrology.lakeId.buffer,
           rivers.pointsCells.buffer,
           rivers.dischargeM3s.buffer,
           rivers.starts.buffer,

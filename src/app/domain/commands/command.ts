@@ -9,6 +9,8 @@ export interface MapChange {
   readonly metadata: boolean;
   /** Map settings (latitudes, tilt…) changed: derived data like the climate must be recomputed. */
   readonly settings?: boolean;
+  /** Something the hydrology reads changed (a lake's place or level): rivers must be recomputed. */
+  readonly hydrology?: boolean;
 }
 
 export const NO_CHANGE: MapChange = { terrainTiles: [], metadata: false };

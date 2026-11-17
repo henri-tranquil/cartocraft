@@ -14,6 +14,12 @@ export interface JapanPlace {
   readonly outline?: readonly number[];
   /** Overrides the template's default importance. */
   readonly rank?: ImportanceRank;
+  /**
+   * Lakes: water level (m). In this data a lake is a FLAT (the water surface),
+   * not a pit: the level must sit just above it. Chosen once against the real
+   * areas (real altitude when it gives a sane area), capped at the spill level by the app.
+   */
+  readonly lakeLevelM?: number;
 }
 
 const capital: FeatureTemplate = { kind: 'settlement', size: 'capital' };
@@ -27,6 +33,7 @@ const bay: FeatureTemplate = { kind: 'region', tone: 'water' };
 const range: FeatureTemplate = { kind: 'range' };
 /** `at` is a point near the river's course, a few tens of km above its mouth: snapped onto the computed river. */
 const river: FeatureTemplate = { kind: 'river' };
+const lake: FeatureTemplate = { kind: 'lake' };
 
 export const JAPAN_PLACES: readonly JapanPlace[] = [
   // Cities
@@ -157,4 +164,18 @@ export const JAPAN_PLACES: readonly JapanPlace[] = [
   { name: 'Yoneshiro', template: river, at: [40.2, 140.3] },
   { name: 'Nakdong', template: river, at: [35.6, 128.4] },
   { name: 'Tumen', template: river, at: [42.75, 130.2] },
+
+  // Lakes (model area / real area, km²)
+  { name: 'Lac Biwa', template: lake, at: [35.25, 136.08], lakeLevelM: 85, rank: 2 }, // 657 / 670
+  { name: 'Kasumigaura', template: lake, at: [36.03, 140.4], lakeLevelM: 1 }, // 135 / 168
+  { name: 'Lac Inawashiro', template: lake, at: [37.48, 140.1], lakeLevelM: 515 }, // ≈ 75 / 103
+  { name: 'Lac Shinji', template: lake, at: [35.45, 132.95], lakeLevelM: 2 }, // 88 / 79
+  { name: 'Nakaumi', template: lake, at: [35.47, 133.2], lakeLevelM: 1 }, // 93 / 86
+  { name: 'Lac Kussharo', template: lake, at: [43.62, 144.33], lakeLevelM: 144 }, // 94 / 79
+  { name: 'Lac Shikotsu', template: lake, at: [42.75, 141.33], lakeLevelM: 289 }, // 75 / 78
+  { name: 'Lac Tōya', template: lake, at: [42.58, 140.8], lakeLevelM: 96 }, // 62 / 70 (seed off the central island)
+  { name: 'Lac Ogawara', template: lake, at: [40.78, 141.33], lakeLevelM: 3 }, // 57 / 63
+  { name: 'Lac Towada', template: lake, at: [40.47, 140.88], lakeLevelM: 405 }, // 30 / 61 (higher levels spill off the flat)
+  { name: 'Lac Hamana', template: lake, at: [34.75, 137.57], lakeLevelM: 1 }, // 31 / 65
+  { name: 'Lac Suwa', template: lake, at: [36.05, 138.08], lakeLevelM: 762, rank: 4 }, // 15 / 13
 ];

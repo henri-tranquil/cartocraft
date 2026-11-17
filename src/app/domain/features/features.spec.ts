@@ -69,3 +69,29 @@ describe('features in the file format', () => {
     expect(() => mapFromDocument({ ...document, header })).toThrow(/importance/);
   });
 });
+
+describe('lakes', () => {
+  const lake = createFeature({ kind: 'lake' }, 'l1', 'Lac Clair', 20, 20);
+  const set = (surfaceM: number | null): MapFeature => ({ ...lake, surfaceM }) as MapFeature;
+
+  it('round-trips brim-full (null) and set levels', () => {
+    const map = blankMap();
+    map.features.push(lake, { ...set(120), id: 'l2' });
+    const restored = mapFromDocument(decodeContainer(encodeContainer(mapToDocument(map))));
+    expect(restored.features).toEqual(map.features);
+  });
+
+  it('rejects a non-integer level', () => {
+    const document = mapToDocument(blankMap());
+    const header = { ...document.header, features: [set(12.5)] };
+    expect(() => mapFromDocument({ ...document, header })).toThrow(/niveau du lac/);
+  });
+
+  it('asks for a hydrology rerun when a lake moves or changes level, not when renamed', () => {
+    const map = blankMap();
+    expect(new FeatureEditCommand('add', null, lake).execute(map).hydrology).toBe(true);
+    expect(new FeatureEditCommand('rename', lake, { ...lake, name: 'Autre' }).execute(map).hydrology).toBeFalsy();
+    expect(new FeatureEditCommand('level', { ...lake, name: 'Autre' }, set(50)).execute(map).hydrology).toBe(true);
+    expect(new FeatureEditCommand('village', null, village).execute(map).hydrology).toBeFalsy();
+  });
+});

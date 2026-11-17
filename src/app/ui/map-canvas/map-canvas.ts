@@ -18,6 +18,7 @@ import { ClimateResult } from '../../domain/climate/climate-model';
 import { CellPoint } from '../../domain/terrain/brushes';
 import { TerrainRaster } from '../../rendering/terrain-raster';
 import { VintageBuilder, VintageRaster } from '../../rendering/vintage-raster';
+import { EDIT_LAKE_STYLE, LakeLayer, VINTAGE_LAKE_STYLE } from '../../rendering/lake-layer';
 import { cellToScreen, fitViewport, panBy, resize, screenToCell, Viewport, zoomAt, zoomLimits } from '../../rendering/viewport';
 import { loadView, saveView } from './view-memory';
 import { drawWindOverlay } from '../../rendering/wind-overlay';
@@ -108,6 +109,8 @@ export class MapCanvas {
   private raster: TerrainRaster | null = null;
   private rasterMap: WorldMap | null = null;
   /** Rendered view, rebuilt when the map or its revision changes. */
+  private readonly editLakes = new LakeLayer(EDIT_LAKE_STYLE);
+  private readonly vintageLakes = new LakeLayer(VINTAGE_LAKE_STYLE);
   private vintage: { raster: VintageRaster; map: WorldMap; revision: number; climate: ClimateResult | null } | null = null;
   private vintageRequested: { map: WorldMap; revision: number; climate: ClimateResult | null } | null = null;
   private readonly vintageBuilder = new VintageBuilder();
@@ -380,7 +383,10 @@ export class MapCanvas {
     if (this.facade.rendered()) {
       this.drawRendered(ctx, vp, map);
       const hydrology = this.facade.renderHydrology();
-      if (hydrology && this.vintage?.map === map) drawRivers(ctx, vp, hydrology.rivers, map.settings.baseCellKm, VINTAGE_RIVER_STYLE);
+      if (hydrology && this.vintage?.map === map) {
+        this.vintageLakes.draw(ctx, vp, hydrology.lakeId, hydrology.widthCells);
+        drawRivers(ctx, vp, hydrology.rivers, map.settings.baseCellKm, VINTAGE_RIVER_STYLE);
+      }
       this.drawNames(ctx, vp, map);
       return; // dirty rects stay queued for the design raster
     }
@@ -392,7 +398,10 @@ export class MapCanvas {
     this.raster.draw(ctx, vp);
     const wind = this.facade.windOverlay();
     const hydrology = this.facade.renderHydrology();
-    if (hydrology) drawRivers(ctx, vp, hydrology.rivers, map.settings.baseCellKm, EDIT_RIVER_STYLE);
+    if (hydrology) {
+      this.editLakes.draw(ctx, vp, hydrology.lakeId, hydrology.widthCells);
+      drawRivers(ctx, vp, hydrology.rivers, map.settings.baseCellKm, EDIT_RIVER_STYLE);
+    }
     if (wind) drawWindOverlay(ctx, vp, wind.result, wind.yearPhase);
     this.drawBrushCursor(ctx, vp, map);
     this.drawNames(ctx, vp, map);

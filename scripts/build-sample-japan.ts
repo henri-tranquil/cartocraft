@@ -156,6 +156,7 @@ function japanFeatures(rivers: RiverNetwork): MapFeature[] {
     } else if (place.at) {
       const [x, y] = projectKm(place.at[0], place.at[1]);
       feature = createFeature(place.template, id, place.name, round2(x), round2(y));
+      if (feature.kind === 'lake' && place.lakeLevelM !== undefined) feature = { ...feature, surfaceM: place.lakeLevelM };
     } else {
       throw new Error(`${place.name}: no position`);
     }

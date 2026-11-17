@@ -693,7 +693,7 @@ export class EditorFacade {
     if (!change) return;
     this.store.applyChange(change);
     this.autoSave.markChanged(change.terrainTiles, change.metadata);
-    if (change.terrainTiles.length > 0) this.climate.invalidate();
+    if (change.terrainTiles.length > 0 || change.hydrology) this.climate.invalidate();
     if (change.settings) {
       this.climate.invalidate(0);
       if (this.latitudePinsState()) this.refreshPinsFromSettings();

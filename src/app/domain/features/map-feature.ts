@@ -72,8 +72,23 @@ export interface RangeFeature extends FeatureBase {
   readonly pathKm: readonly number[];
 }
 
+/**
+ * A lake: (xKm, yKm) is a point of its bed; its extent is COMPUTED (cells
+ * below the water level connected to that point), never stored, so it
+ * follows the terrain. The name sits on that point.
+ */
+export interface LakeFeature extends FeatureBase {
+  readonly kind: 'lake';
+  /**
+   * Water level (m). null = brim-full: the level where the lake spills over
+   * the lowest point of its rim (follows terrain edits). A number is capped
+   * at that spill level: water cannot rise higher without flowing out.
+   */
+  readonly surfaceM: number | null;
+}
+
 /** Immutable values: an edit replaces the whole object (cheap, and undo just keeps the old one). */
-export type MapFeature = SettlementFeature | PeakFeature | LabelFeature | RegionFeature | RiverFeature | RangeFeature;
+export type MapFeature = SettlementFeature | PeakFeature | LabelFeature | RegionFeature | RiverFeature | RangeFeature | LakeFeature;
 export type FeatureKind = MapFeature['kind'];
 
 /** What the "new place" buttons create. */
@@ -83,7 +98,8 @@ export type FeatureTemplate =
   | { readonly kind: 'label'; readonly tone: LabelTone }
   | { readonly kind: 'region'; readonly tone: LabelTone }
   | { readonly kind: 'river' }
-  | { readonly kind: 'range' };
+  | { readonly kind: 'range' }
+  | { readonly kind: 'lake' };
 
 /** How a feature is placed: one click, a closed outline, a click on a river, or a drawn line. */
 export type FeatureGeometry = 'point' | 'zone' | 'river' | 'line';
@@ -108,6 +124,8 @@ export function defaultRank(template: FeatureTemplate): ImportanceRank {
       return ({ capital: 1, city: 2, town: 4, village: 5 } as const)[template.size];
     case 'peak':
       return 4;
+    case 'lake':
+      return 3;
     case 'label':
       return template.tone === 'water' ? 1 : 2;
     case 'region':
@@ -143,6 +161,8 @@ export function createFeature(
     case 'range':
       if (shapeKm.length < MIN_PATH_POINTS * 2) throw new Error('A range needs at least 2 points');
       return { ...base, kind: 'range', pathKm: shapeKm };
+    case 'lake':
+      return { ...base, kind: 'lake', surfaceM: null };
   }
 }
 
@@ -161,6 +181,8 @@ export function templateOf(feature: MapFeature): FeatureTemplate {
       return { kind: 'river' };
     case 'range':
       return { kind: 'range' };
+    case 'lake':
+      return { kind: 'lake' };
   }
 }
 

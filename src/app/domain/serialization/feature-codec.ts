@@ -58,6 +58,13 @@ function parseFeature(item: unknown, index: number): MapFeature {
       if (!isPointList(path, MIN_PATH_POINTS)) throw invalid('tracé');
       return { ...base, kind, pathKm: path };
     }
+    case 'lake': {
+      const surfaceM = item['surfaceM'];
+      if (surfaceM !== null && !(typeof surfaceM === 'number' && Number.isInteger(surfaceM) && surfaceM >= -32768 && surfaceM <= 32767)) {
+        throw invalid('niveau du lac');
+      }
+      return { ...base, kind, surfaceM };
+    }
     default:
       throw invalid('type');
   }

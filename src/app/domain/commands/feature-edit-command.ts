@@ -3,6 +3,16 @@ import { WorldMap } from '../map/world-map';
 import { Command, MapChange } from './command';
 
 const FEATURES_CHANGE: MapChange = { terrainTiles: [], metadata: true };
+const LAKES_CHANGE: MapChange = { ...FEATURES_CHANGE, hydrology: true };
+
+/** Renaming a lake changes nothing for the water; moving it or its level does. */
+function changesHydrology(before: MapFeature | null, after: MapFeature | null): boolean {
+  const lake = (f: MapFeature | null) => (f?.kind === 'lake' ? f : null);
+  const a = lake(before);
+  const b = lake(after);
+  if (!a && !b) return false;
+  return !a || !b || a.xKm !== b.xKm || a.yKm !== b.yKm || a.surfaceM !== b.surfaceM;
+}
 
 /**
  * Add (before = null), modify, or delete (after = null) one named place.
@@ -11,6 +21,7 @@ const FEATURES_CHANGE: MapChange = { terrainTiles: [], metadata: true };
  */
 export class FeatureEditCommand implements Command {
   private index = -1;
+  private readonly change: MapChange;
 
   constructor(
     readonly label: string,
@@ -19,6 +30,7 @@ export class FeatureEditCommand implements Command {
   ) {
     if (!before && !after) throw new Error('FeatureEditCommand needs a before or an after');
     if (before && after && before.id !== after.id) throw new Error('FeatureEditCommand cannot change an id');
+    this.change = changesHydrology(before, after) ? LAKES_CHANGE : FEATURES_CHANGE;
   }
 
   execute(map: WorldMap): MapChange {
@@ -34,7 +46,7 @@ export class FeatureEditCommand implements Command {
       this.index = map.features.length;
       map.features.push(this.after);
     }
-    return FEATURES_CHANGE;
+    return this.change;
   }
 
   undo(map: WorldMap): MapChange {
@@ -42,6 +54,6 @@ export class FeatureEditCommand implements Command {
     if (this.after && this.before) map.features[this.index] = this.before;
     else if (this.after) map.features.splice(this.index, 1);
     else if (this.before) map.features.splice(this.index, 0, this.before);
-    return FEATURES_CHANGE;
+    return this.change;
   }
 }

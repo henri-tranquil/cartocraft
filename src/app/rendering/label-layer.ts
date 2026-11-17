@@ -73,6 +73,7 @@ export function symbolSizePx(feature: MapFeature): number {
     case 'region':
     case 'river':
     case 'range':
+    case 'lake':
       return 0;
   }
 }
@@ -404,7 +405,7 @@ export function drawLabels(ctx: CanvasRenderingContext2D, placed: readonly Place
 }
 
 function isWaterName(feature: MapFeature): boolean {
-  return feature.kind === 'river' || ((feature.kind === 'label' || feature.kind === 'region') && feature.tone === 'water');
+  return feature.kind === 'river' || feature.kind === 'lake' || ((feature.kind === 'label' || feature.kind === 'region') && feature.tone === 'water');
 }
 
 function drawGlyphs(ctx: CanvasRenderingContext2D, glyphs: readonly Glyph[], ink: string): void {

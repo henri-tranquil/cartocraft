@@ -54,6 +54,27 @@ describe('computeHydrology', () => {
     for (let k = 1; k < points.length; k++) expect(points[k].q).toBeGreaterThanOrEqual(points[k - 1].q);
   });
 
+  it('cuts the river at a lake: one line ends on its shore, the outflow starts a new one', () => {
+    const w = 21;
+    const h = 30;
+    const alt = valley(w, h);
+    for (let y = 13; y <= 17; y++) for (let x = 8; x <= 12; x++) alt[y * w + x] -= 60; // a basin on the valley floor
+    const sea = computeSeaMask(alt, w, h, 0);
+    const result = computeHydrology(alt, w, h, sea, 1, new Float32Array(w * h).fill(20000), [{ xCell: 10, yCell: 15, surfaceM: null }]);
+    expect(result.lakes[0].areaCells).toBeGreaterThan(0);
+    const inLake = (x: number, y: number) => result.lakeId[Math.floor(y) * w + Math.floor(x)] > 0;
+    let mouths = 0;
+    for (let k = 0; k < lineCount(result.rivers); k++) {
+      const points = line(result.rivers, k);
+      // Only the last point (the mouth) may lie in the lake.
+      points.slice(0, -1).forEach((p) => expect(inLake(p.x, p.y)).toBe(false));
+      if (inLake(points[points.length - 1].x, points[points.length - 1].y)) mouths++;
+    }
+    expect(mouths).toBeGreaterThan(0);
+    // The outflow carries the whole basin: some line below the lake has the big flow.
+    expect(Math.max(...result.rivers.lineMaxDischargeM3s)).toBeGreaterThan(0);
+  });
+
   it('makes no river where it never rains', () => {
     const w = 21;
     const h = 30;

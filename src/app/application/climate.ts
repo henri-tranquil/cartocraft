@@ -111,5 +111,8 @@ export function buildClimateInput(map: WorldMap): ClimateInput {
     seaLevelM: s.seaLevelM,
     globalTemperatureOffsetC: s.globalTemperatureOffsetC,
     beyondEdges: s.beyondEdges,
+    lakes: map.features.flatMap((f) =>
+      f.kind === 'lake' ? [{ xCell: f.xKm / s.baseCellKm, yCell: f.yKm / s.baseCellKm, surfaceM: f.surfaceM }] : [],
+    ),
   };
 }
