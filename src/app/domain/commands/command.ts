@@ -1,0 +1,23 @@
+import { WorldMap } from '../map/world-map';
+
+/**
+ * What a command touched, so the store can notify only what changed
+ * (the renderer will redraw only `terrainTiles`).
+ */
+export interface MapChange {
+  readonly terrainTiles: readonly number[];
+  readonly metadata: boolean;
+}
+
+export const NO_CHANGE: MapChange = { terrainTiles: [], metadata: false };
+
+/**
+ * Command pattern: every edit is reversible. `undo` must restore exactly the
+ * state before `execute`, and `execute` must be replayable after `undo` (redo).
+ */
+export interface Command {
+  /** French, shown in the UI (e.g. "Annuler : Renommer la carte"). */
+  readonly label: string;
+  execute(map: WorldMap): MapChange;
+  undo(map: WorldMap): MapChange;
+}
