@@ -13,8 +13,9 @@ import { CellPoint } from '../domain/terrain/brushes';
 import { CellRect, getCell, isInside } from '../domain/terrain/tiled-grid';
 import { AutoSave } from './auto-save';
 import { ClimateService } from './climate';
+import { SampleMaps } from './sample-maps';
 import { windAtRow, WindVector } from '../domain/climate/wind';
-import { ClimateResult, temperatureAtC } from '../domain/climate/climate-model';
+import { ClimateResult, humidityAtPct, temperatureAtC } from '../domain/climate/climate-model';
 import { MapStore } from './map-store';
 import { MAP_FILE_CODEC, MAP_REPOSITORY } from './ports';
 import { EditorTool, ToolContext } from './tools/editor-tool';
@@ -26,12 +27,14 @@ import {
 } from './tools/terrain-brush-tools';
 
 /** What the map shows: the editing relief view, or a climate field. */
-export type ViewMode = 'relief' | 'temperature' | 'wind';
+export type ViewMode = 'relief' | 'landscape' | 'temperature' | 'humidity' | 'wind';
 
-/** What the renderer needs to colour by temperature. */
+/** What the renderer needs to colour by a climate field. */
 export interface ClimateOverlay {
   readonly result: ClimateResult;
   readonly yearPhase: number;
+  /** Wind view draws its arrows over landscape colours. */
+  readonly colouring: 'landscape' | 'temperature' | 'humidity';
 }
 
 /** 'pan' is a view-only mode handled by the canvas; the others are EditorTools. */
@@ -62,6 +65,7 @@ export class EditorFacade {
   private readonly fileCodec = inject(MAP_FILE_CODEC);
   private readonly autoSave = inject(AutoSave);
   private readonly climate = inject(ClimateService);
+  private readonly samples = inject(SampleMaps);
   private readonly viewModeState = signal<ViewMode>('relief');
   /** Year phase t ∈ [0, 1[ (0 = 1st January) shown by the season slider. */
   private readonly yearPhaseState = signal(0.54);
@@ -119,13 +123,15 @@ export class EditorFacade {
   /** Wind arrows to draw over the relief colours; null outside the wind view. */
   readonly windOverlay = computed<ClimateOverlay | null>(() => {
     const result = this.climate.result();
-    return this.viewModeState() === 'wind' && result ? { result, yearPhase: this.yearPhaseState() } : null;
+    return this.viewModeState() === 'wind' && result ? { result, yearPhase: this.yearPhaseState(), colouring: 'landscape' } : null;
   });
 
   /** Null in relief view or before the first climate result. */
   readonly climateOverlay = computed<ClimateOverlay | null>(() => {
     const result = this.climate.result();
-    return this.viewModeState() === 'temperature' && result ? { result, yearPhase: this.yearPhaseState() } : null;
+    const mode = this.viewModeState();
+    if (!result || mode === 'relief') return null;
+    return { result, yearPhase: this.yearPhaseState(), colouring: mode === 'wind' ? 'landscape' : mode };
   });
 
   // Read-only access for the renderer: rendering reads the model, never writes it.
@@ -143,6 +149,12 @@ export class EditorFacade {
   // --- Map lifecycle ---
 
   /** Opens the most recently edited local map, if any. */
+  /** Installs bundled sample maps (first launch / new sample version), then reopens the last map. */
+  async startUp(): Promise<void> {
+    await this.samples.install();
+    await this.restoreLastSession();
+  }
+
   async restoreLastSession(): Promise<void> {
     await this.run(async () => {
       await this.refreshList();
@@ -236,6 +248,16 @@ export class EditorFacade {
     const y = Math.floor(point.y);
     if (x < 0 || y < 0 || x >= result.widthCells || y >= result.heightCells) return null;
     return temperatureAtC(result, y * result.widthCells + x, this.yearPhaseState());
+  }
+
+  /** Relative humidity under a point at the current season, %; null if unknown. */
+  humidityAt(point: CellPoint): number | null {
+    const result = this.climate.result();
+    if (!result) return null;
+    const x = Math.floor(point.x);
+    const y = Math.floor(point.y);
+    if (x < 0 || y < 0 || x >= result.widthCells || y >= result.heightCells) return null;
+    return humidityAtPct(result, y * result.widthCells + x, this.yearPhaseState());
   }
 
   /** Prevailing wind under a point at the current season; null if unknown. */

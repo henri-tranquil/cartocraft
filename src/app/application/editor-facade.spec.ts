@@ -6,7 +6,7 @@ import { MapFormatError } from '../domain/serialization/map-document';
 import { EditorFacade } from './editor-facade';
 import { MapStore } from './map-store';
 import { CLIMATE_ENGINE, MAP_FILE_CODEC, MAP_REPOSITORY } from './ports';
-import { computeMonthlyTemperatures } from '../domain/climate/temperature';
+import { computeClimate } from '../domain/climate/climate';
 import { ClimateEngine } from '../domain/climate/climate-engine';
 
 class InMemoryRepository implements MapRepository {
@@ -28,7 +28,10 @@ class InMemoryRepository implements MapRepository {
 }
 
 /** Same algorithm as the worker, run synchronously. */
-const inlineClimateEngine: ClimateEngine = { compute: async (input) => computeMonthlyTemperatures(input) };
+const inlineClimateEngine: ClimateEngine = { compute: async (input) => computeClimate(input) };
+
+/** Small map: each map creation triggers a (synchronous, in tests) climate run. */
+const SMALL_MAP = { ...DEFAULT_MAP_SETTINGS, widthKm: 200, heightKm: 200 };
 
 const failingCodec: MapFileCodec = {
   fileExtension: '.cartocraft',
@@ -65,7 +68,7 @@ describe('EditorFacade', () => {
   });
 
   it('renames through undoable commands', async () => {
-    await facade.createBlankMap(DEFAULT_MAP_SETTINGS, 'A');
+    await facade.createBlankMap(SMALL_MAP, 'A');
     facade.renameMap('B');
     expect(facade.undoLabel()).toBe('Renommer la carte');
     facade.undo();
@@ -79,7 +82,7 @@ describe('EditorFacade', () => {
   });
 
   it('duplicates and deletes, closing the current map if deleted', async () => {
-    await facade.createBlankMap(DEFAULT_MAP_SETTINGS, 'A');
+    await facade.createBlankMap(SMALL_MAP, 'A');
     const id = facade.currentMapId()!;
     await facade.duplicateMap(id);
     expect(facade.savedMaps().map((m) => m.name).sort()).toEqual(['A', 'A (copie)']);
@@ -89,7 +92,7 @@ describe('EditorFacade', () => {
   });
 
   it('paints a stroke live and undoes it as a single command', async () => {
-    await facade.createBlankMap(DEFAULT_MAP_SETTINGS, 'A');
+    await facade.createBlankMap(SMALL_MAP, 'A');
     store.takeDirtyRects();
     facade.setBrush({ radiusKm: 10, strength: 1 });
     facade.pointerDown({ x: 100, y: 100 });
@@ -105,7 +108,7 @@ describe('EditorFacade', () => {
   it('keeps applying while the pointer is held still (airbrush)', async () => {
     vi.useFakeTimers();
     try {
-      await facade.createBlankMap(DEFAULT_MAP_SETTINGS, 'A');
+      await facade.createBlankMap(SMALL_MAP, 'A');
       facade.setBrush({ radiusKm: 10, strength: 1 });
       facade.pointerDown({ x: 100, y: 100 });
       const afterFirstDab = facade.altitudeAt({ x: 100, y: 100 })!;
@@ -121,7 +124,7 @@ describe('EditorFacade', () => {
   });
 
   it('does nothing with the pan tool', async () => {
-    await facade.createBlankMap(DEFAULT_MAP_SETTINGS, 'A');
+    await facade.createBlankMap(SMALL_MAP, 'A');
     facade.selectTool('pan');
     facade.pointerDown({ x: 100, y: 100 });
     facade.pointerUp();
@@ -148,7 +151,7 @@ describe('EditorFacade', () => {
   });
 
   it('only pans while editing is disabled, then restores the relief tool', async () => {
-    await facade.createBlankMap(DEFAULT_MAP_SETTINGS, 'A');
+    await facade.createBlankMap(SMALL_MAP, 'A');
     facade.setEditingEnabled(false);
     expect(facade.effectiveTool()).toBe('pan');
     facade.pointerDown({ x: 100, y: 100 });
@@ -174,7 +177,7 @@ describe('EditorFacade', () => {
   });
 
   it('refuses pins that would put the south at the top', async () => {
-    await facade.createBlankMap(DEFAULT_MAP_SETTINGS, 'A');
+    await facade.createBlankMap(SMALL_MAP, 'A');
     facade.startLatitudeEditing();
     facade.setLatitudePinValue(0, -10);
     expect(facade.error()).toContain('latitude du haut');
@@ -182,7 +185,7 @@ describe('EditorFacade', () => {
   });
 
   it('reports import errors without touching the open map', async () => {
-    await facade.createBlankMap(DEFAULT_MAP_SETTINGS, 'A');
+    await facade.createBlankMap(SMALL_MAP, 'A');
     await facade.importMapFile(new Blob(['junk']));
     expect(facade.error()).toBe('Ce fichier n’est pas une carte Cartocraft.');
     expect(facade.mapName()).toBe('A');

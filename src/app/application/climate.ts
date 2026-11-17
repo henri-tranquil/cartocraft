@@ -97,6 +97,7 @@ export function buildClimateInput(map: WorldMap): ClimateInput {
   return {
     widthCells: grid.widthCells,
     heightCells: grid.heightCells,
+    cellKm: s.baseCellKm,
     altitudeM: toRowMajor(grid),
     latitudeTopDeg: s.latitudeTopDeg,
     latitudeBottomDeg: s.latitudeBottomDeg,

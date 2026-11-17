@@ -154,6 +154,13 @@ Le calcul se fait sur la grille de base (inutile de descendre plus fin), dans un
 - Température moyenne annuelle = **table** insolation → °C calée sur les moyennes zonales terrestres (pas une droite : la vraie relation est plate sous les tropiques, raide vers les pôles). Amplitude saisonnière amortie et retardée par l'inertie thermique (terre 45 %, ~1 mois ; mer 12 %, ~2 mois). Surface de la mer bornée à −1,8 °C (gel de l'eau de mer).
 - Calcul dans `infrastructure/workers/climate.worker.ts` derrière le port `ClimateEngine` ; `ClimateService` relance avec un délai de 1,5 s après une édition, une seule exécution à la fois, résultats périmés ignorés (compteur de génération).
 
+**Brique 3 (vents + advection)** :
+- Vents dominants : modèle à trois cellules, `u = −U·sin(6|φ|)`, ceintures décalées de 40 % de la déclinaison. Un vecteur **par ligne** (latitude seule) tant que le relief ne dévie pas l'air (brique 4).
+- Advection semi-lagrangienne sur une **grille grossière** (≤ 256 cellules de côté), balayages alternés en place ; relaxation `e^(−Δs/L)`, `L = vitesse × τ` (τ terre 1 j, mer ½ j). La correction (T advectée − T locale) est rééchantillonnée et ajoutée aux températures fines (qui gardent l'altitude).
+- Humidité : vapeur d'eau advectée, plafonnée à la saturation (Clausius-Clapeyron) ; sortie = humidité relative `Uint8` en %.
+- Vue « Paysage » : couleur continue f(température, humidité) (ocre sec → vert, brun au repos, neige, banquise). L'humidité relative est un **proxy provisoire** : la brique 4 (précipitations) doit la remplacer pour la végétation.
+- **Limite connue** : pas de mousson (systèmes de pression continentaux). Sur le Japon : hiver trop doux au nord, été trop sec et Vladivostok trop chaud.
+
 Rendu : la couleur des terres suit un dégradé continu en fonction (température, humidité) : ocre sec, vert humide, blanc enneigé. Un curseur (timeline) de saison anime le tout : la neige descend, la végétation change de teinte, les fleuves du nord gèlent.
 
 ## Hydrologie (fleuves hybrides)
@@ -202,6 +209,13 @@ Style **néo-brutalisme sur parchemin**, palette « C1 Encre & ocre » (maquette
 - Polices : Space Grotesk (UI), IM Fell English SC (noms de lieux, titres).
 - Interface compacte : base 14 px, traits 2 px (`--cc-border`), 3 px pour les cadres (`--cc-border-strong`), ombres 3 px.
 - La vue (centre + zoom) est mémorisée **par carte** dans `localStorage` (`cartocraft:view:<id>`) : confort local, pas une donnée de carte ; bouton « recadrer » pour revenir à la vue d'ensemble.
+
+## Carte de test : Japon
+
+- Données réelles (AWS Terrain Tiles « Terrarium », SRTM + bathymétrie, zoom 7), projection sinusoïdale centrée sur 137,5° E, 1700 × 1700 km à 1 km, 46° N → 30,7° N.
+- `npm run sample:japan` (script `scripts/build-sample-japan.ts`, tuiles en cache dans `scripts/.cache`) → `public/samples/japon.cartocraft`.
+- Installée dans IndexedDB par `SampleMaps` avec un id fixe (`sample-japon`). **Incrémenter `SAMPLE_JAPAN.version`** (`application/samples.ts`) à chaque régénération : l'app remplace alors la copie locale (les retouches locales de l'exemple sont perdues). Une carte d'exemple supprimée n'est réinstallée qu'à la version suivante.
+- **À tenir à jour à chaque étape** (fleuves nommés, villes, régions…) ; c'est la référence pour juger le réalisme (comparer aux stations : Sapporo, Niigata, Tokyo, Osaka, Kagoshima, Vladivostok, Busan).
 
 ## Persistance
 

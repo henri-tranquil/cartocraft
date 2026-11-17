@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import { computeMonthlyTemperatures } from '../../domain/climate/temperature';
+import { computeClimate } from '../../domain/climate/climate';
 import { ClimateWorkerRequest, ClimateWorkerResponse } from './climate-protocol';
 
 /**
@@ -13,14 +13,14 @@ addEventListener('message', (event: MessageEvent<ClimateWorkerRequest>) => {
     case 'compute': {
       const start = performance.now();
       try {
-        const result = computeMonthlyTemperatures(request.input);
+        const result = computeClimate(request.input);
         const response: ClimateWorkerResponse = {
           kind: 'result',
           requestId: request.requestId,
           result,
           durationMs: performance.now() - start,
         };
-        postMessage(response, [result.temperatureDeciC.buffer, result.windUMs.buffer, result.windVMs.buffer]);
+        postMessage(response, [result.temperatureDeciC.buffer, result.windUMs.buffer, result.windVMs.buffer, result.humidityPct.buffer]);
       } catch (error) {
         const response: ClimateWorkerResponse = { kind: 'error', requestId: request.requestId, message: String(error) };
         postMessage(response);

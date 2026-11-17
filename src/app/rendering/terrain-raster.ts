@@ -1,8 +1,8 @@
 import { WorldMap } from '../domain/map/world-map';
 import { CellRect, clipRect, expandRect, Int16TiledGrid, tileRect } from '../domain/terrain/tiled-grid';
 import { AltitudePalette, buildAltitudePalette } from './style/altitude-palette';
-import { renderTerrainPixels, TemperatureLayer } from './terrain-pixels';
-import { buildTemperaturePalette } from './style/temperature-palette';
+import { ClimateColouring, ClimateLayer, renderTerrainPixels } from './terrain-pixels';
+import { climateLuts } from './style/climate-palettes';
 import { ClimateResult } from '../domain/climate/climate-model';
 import { cellToScreen, screenToCell, Viewport } from './viewport';
 
@@ -24,8 +24,7 @@ export class TerrainRaster {
   private readonly palette: AltitudePalette;
   private readonly cellSizeM: number;
   private readonly bitmaps: TileBitmap[];
-  private readonly temperatureRgb = buildTemperaturePalette();
-  private temperature: TemperatureLayer | null = null;
+  private climate: ClimateLayer | null = null;
 
   constructor(map: WorldMap) {
     this.grid = map.terrain.baseAltitudeM;
@@ -41,14 +40,22 @@ export class TerrainRaster {
   }
 
   /**
-   * Switches between relief colours (null) and temperature colours.
+   * Switches between relief colours (null) and a climate colouring.
    * Returns true when the whole raster must be redrawn.
    */
-  setTemperature(layer: { result: ClimateResult; yearPhase: number } | null): boolean {
-    const current = this.temperature;
+  setClimate(layer: { result: ClimateResult; yearPhase: number; colouring: ClimateColouring } | null): boolean {
+    const current = this.climate;
     if (!layer && !current) return false;
-    if (layer && current && layer.result === current.result && layer.yearPhase === current.yearPhase) return false;
-    this.temperature = layer ? { ...layer, rgb: this.temperatureRgb } : null;
+    if (
+      layer &&
+      current &&
+      layer.result === current.result &&
+      layer.yearPhase === current.yearPhase &&
+      layer.colouring === current.colouring
+    ) {
+      return false;
+    }
+    this.climate = layer ? { ...layer, luts: climateLuts() } : null;
     return true;
   }
 
@@ -64,7 +71,7 @@ export class TerrainRaster {
       this.bitmaps.forEach((bitmap, tileIndex) => {
         const part = intersect(area, tileRect(this.grid, tileIndex));
         if (!part) return;
-        renderTerrainPixels(this.grid, tileIndex, part, bitmap.image.data, this.palette, this.cellSizeM, this.temperature);
+        renderTerrainPixels(this.grid, tileIndex, part, bitmap.image.data, this.palette, this.cellSizeM, this.climate);
         const { x0, y0 } = tileRect(this.grid, tileIndex);
         bitmap.ctx.putImageData(bitmap.image, 0, 0, part.x0 - x0, part.y0 - y0, part.x1 - part.x0 + 1, part.y1 - part.y0 + 1);
       });

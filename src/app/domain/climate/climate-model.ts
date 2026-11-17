@@ -5,6 +5,8 @@
 export interface ClimateInput {
   readonly widthCells: number;
   readonly heightCells: number;
+  /** Size of one cell (distances matter for wind transport). */
+  readonly cellKm: number;
   /** Row-major altitudes (index = y * width + x), metres. */
   readonly altitudeM: Int16Array;
   readonly latitudeTopDeg: number;
@@ -34,6 +36,8 @@ export interface ClimateResult {
    */
   readonly windUMs: Float32Array;
   readonly windVMs: Float32Array;
+  /** Relative humidity of the air, %, MONTHS row-major fields like temperatureDeciC. */
+  readonly humidityPct: Uint8Array;
 }
 
 /** Year phase at the middle of month `m` (0 = January). */
@@ -57,10 +61,20 @@ export function monthBlend(yearPhase: number): { m0: number; m1: number; f: numb
  * Temperature at a cell for a continuous year phase, by linear interpolation
  * between the two surrounding mid-month snapshots (wrapping December → January).
  */
-export function temperatureAtC(result: ClimateResult, cellIndex: number, yearPhase: number): number {
+export function temperatureAtC(
+  result: Pick<ClimateResult, 'widthCells' | 'heightCells' | 'temperatureDeciC'>,
+  cellIndex: number, yearPhase: number): number {
   const size = result.widthCells * result.heightCells;
   const { m0, m1, f } = monthBlend(yearPhase);
   const t0 = result.temperatureDeciC[m0 * size + cellIndex];
   const t1 = result.temperatureDeciC[m1 * size + cellIndex];
   return (t0 + (t1 - t0) * f) / TEMPERATURE_SCALE;
+}
+
+/** Relative humidity at a cell for a continuous year phase, %. */
+export function humidityAtPct(result: ClimateResult, cellIndex: number, yearPhase: number): number {
+  const size = result.widthCells * result.heightCells;
+  const { m0, m1, f } = monthBlend(yearPhase);
+  const h0 = result.humidityPct[m0 * size + cellIndex];
+  return h0 + (result.humidityPct[m1 * size + cellIndex] - h0) * f;
 }

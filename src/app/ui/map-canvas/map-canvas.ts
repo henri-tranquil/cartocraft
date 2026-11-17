@@ -54,6 +54,9 @@ const BACKGROUND = '#e2cfa6';
         @if (info.temperatureC !== null) {
           <span class="chip" title="Température à la saison affichée">{{ info.temperatureC | number: '1.0-0' }} °C</span>
         }
+        @if (info.humidityPct !== null) {
+          <span class="chip" title="Humidité relative de l’air à la saison affichée">HR {{ info.humidityPct | number: '1.0-0' }} %</span>
+        }
         @if (info.windLabel) {
           <span class="chip" title="Vent dominant (d’où il vient) et sa vitesse">vent {{ info.windLabel }}</span>
         }
@@ -106,7 +109,7 @@ export class MapCanvas {
     this.facade.hasClimate();
     const wind = this.facade.windAt(point);
     const windLabel = wind ? `${windFromDirection(wind)} ${Math.hypot(wind.uMs, wind.vMs).toFixed(0)} m/s` : null;
-    return { xKm: point.x * km, yKm: point.y * km, altitudeM, temperatureC: this.facade.temperatureAt(point), windLabel };
+    return { xKm: point.x * km, yKm: point.y * km, altitudeM, temperatureC: this.facade.temperatureAt(point), humidityPct: this.facade.humidityAt(point), windLabel };
   });
 
   protected readonly visibleWidthKm = computed(() => {
@@ -258,7 +261,7 @@ export class MapCanvas {
 
     const dirty = this.facade.takeDirtyRects();
     // Season or view change: every pixel's colour changes.
-    if (this.raster.setTemperature(this.facade.climateOverlay())) dirty.push(this.raster.fullRect());
+    if (this.raster.setClimate(this.facade.climateOverlay())) dirty.push(this.raster.fullRect());
     this.raster.update(dirty);
     this.raster.draw(ctx, vp);
     const wind = this.facade.windOverlay();

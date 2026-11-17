@@ -22,6 +22,7 @@ describe('computeMonthlyTemperatures', () => {
     return {
       widthCells: width,
       heightCells: altitudes.length / width,
+      cellKm: 1,
       altitudeM: Int16Array.from(altitudes),
       latitudeTopDeg: top,
       latitudeBottomDeg: bottom,

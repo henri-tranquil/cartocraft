@@ -1,17 +1,24 @@
 import { CellRect, getCellClamped, INT16_MIN, Int16TiledGrid } from '../domain/terrain/tiled-grid';
 import { ClimateResult, monthBlend, TEMPERATURE_SCALE } from '../domain/climate/climate-model';
 import { AltitudePalette } from './style/altitude-palette';
+import { ClimateLuts } from './style/climate-palettes';
 import { TEMPERATURE_PALETTE_MAX_C, TEMPERATURE_PALETTE_MIN_C } from './style/temperature-palette';
 
-/** Colour by temperature at a given season instead of by altitude. */
-export interface TemperatureLayer {
+export type ClimateColouring = 'landscape' | 'temperature' | 'humidity';
+
+/** Colour by a climate field at a given season instead of by altitude. */
+export interface ClimateLayer {
   readonly result: ClimateResult;
   readonly yearPhase: number;
-  /** From buildTemperaturePalette(). */
-  readonly rgb: Uint8Array;
+  readonly colouring: ClimateColouring;
+  readonly luts: ClimateLuts;
 }
 
-/** In temperature view the sea keeps a hint of blue, so coasts stay readable. */
+/** Sea surface at or below this (°C, monthly mean) is drawn as sea ice in the landscape view. */
+const SEA_ICE_C = -1.2;
+const SEA_ICE: readonly [number, number, number] = [222, 230, 238];
+
+/** In field views the sea keeps a hint of blue, so coasts stay readable. */
 const SEA_TINT = [169, 180, 208] as const;
 const SEA_TINT_WEIGHT = 0.35;
 
@@ -47,7 +54,7 @@ export function renderTerrainPixels(
   out: Uint8ClampedArray,
   palette: AltitudePalette,
   cellSizeM: number,
-  temperature: TemperatureLayer | null = null,
+  climate: ClimateLayer | null = null,
 ): void {
   const size = grid.tileSize;
   const tileX0 = (tileIndex % grid.tilesX) * size;
@@ -56,14 +63,14 @@ export function renderTerrainPixels(
   const slopeScale = VERTICAL_EXAGGERATION / (2 * cellSizeM);
   const [lx, ly, lz] = LIGHT;
 
-  // Temperature view: resolve the season blend once, not per pixel.
-  const tData = temperature?.result.temperatureDeciC;
-  const tWidth = temperature?.result.widthCells ?? 0;
-  const fieldSize = tWidth * (temperature?.result.heightCells ?? 0);
-  const blend = temperature ? monthBlend(temperature.yearPhase) : { m0: 0, m1: 0, f: 0 };
+  // Climate views: resolve the season blend once, not per pixel.
+  const tData = climate?.result.temperatureDeciC;
+  const hData = climate?.result.humidityPct;
+  const tWidth = climate?.result.widthCells ?? 0;
+  const fieldSize = tWidth * (climate?.result.heightCells ?? 0);
+  const blend = climate ? monthBlend(climate.yearPhase) : { m0: 0, m1: 0, f: 0 };
   const off0 = blend.m0 * fieldSize;
   const off1 = blend.m1 * fieldSize;
-  const tLut = temperature?.rgb;
   const tMaxIndex = TEMPERATURE_PALETTE_MAX_C - TEMPERATURE_PALETTE_MIN_C;
 
   for (let y = rect.y0; y <= rect.y1; y++) {
@@ -82,14 +89,35 @@ export function renderTerrainPixels(
       let r: number;
       let g: number;
       let b: number;
-      if (tData && tLut) {
+      const isSea = altitude <= palette.seaLevelM;
+      if (climate && tData && hData) {
         const i = y * tWidth + x;
         const tC = (tData[off0 + i] + (tData[off1 + i] - tData[off0 + i]) * blend.f) / TEMPERATURE_SCALE;
-        const li = Math.min(tMaxIndex, Math.max(0, Math.round(tC) - TEMPERATURE_PALETTE_MIN_C)) * 3;
-        r = tLut[li];
-        g = tLut[li + 1];
-        b = tLut[li + 2];
-        if (altitude <= palette.seaLevelM) {
+        const ti = Math.min(tMaxIndex, Math.max(0, Math.round(tC) - TEMPERATURE_PALETTE_MIN_C));
+        const rh = Math.round(hData[off0 + i] + (hData[off1 + i] - hData[off0 + i]) * blend.f);
+        let lut: Uint8Array;
+        let li: number;
+        if (climate.colouring === 'landscape') {
+          if (isSea) {
+            lut = palette.rgb;
+            li = (altitude - INT16_MIN) * 3;
+          } else {
+            lut = climate.luts.landscape;
+            li = (ti * 101 + rh) * 3;
+          }
+        } else if (climate.colouring === 'humidity') {
+          lut = climate.luts.humidity;
+          li = rh * 3;
+        } else {
+          lut = climate.luts.temperature;
+          li = ti * 3;
+        }
+        r = lut[li];
+        g = lut[li + 1];
+        b = lut[li + 2];
+        if (climate.colouring === 'landscape') {
+          if (isSea && tC <= SEA_ICE_C) [r, g, b] = SEA_ICE;
+        } else if (isSea) {
           r += (SEA_TINT[0] - r) * SEA_TINT_WEIGHT;
           g += (SEA_TINT[1] - g) * SEA_TINT_WEIGHT;
           b += (SEA_TINT[2] - b) * SEA_TINT_WEIGHT;

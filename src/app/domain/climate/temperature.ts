@@ -1,5 +1,4 @@
-import { computeMonthlyWinds } from './wind';
-import { ClimateInput, ClimateResult, MONTHS, monthMidPhase, rowLatitudeDeg, TEMPERATURE_SCALE } from './climate-model';
+import { ClimateInput, MONTHS, monthMidPhase, rowLatitudeDeg, TEMPERATURE_SCALE } from './climate-model';
 import { annualMeanInsolationWm2, dailyInsolationWm2, solarDeclinationDeg } from './insolation';
 
 /**
@@ -55,37 +54,49 @@ export function meanTemperatureFromInsolationC(meanInsolationWm2: number): numbe
   return t0 + ((t1 - t0) * (meanInsolationWm2 - q0)) / (q1 - q0);
 }
 
-export function computeMonthlyTemperatures(input: ClimateInput): ClimateResult {
-  const { widthCells: w, heightCells: h, altitudeM, seaLevelM, axialTiltDeg } = input;
+/** Sea-level air temperature of a latitude for the 12 months, over land and over sea (°C). */
+export function rowSeaLevelTemperaturesC(
+  latitudeDeg: number,
+  input: Pick<ClimateInput, 'axialTiltDeg' | 'globalTemperatureOffsetC'>,
+): { land: Float64Array; sea: Float64Array } {
+  const meanQ = annualMeanInsolationWm2(latitudeDeg, input.axialTiltDeg);
+  const meanT = meanTemperatureFromInsolationC(meanQ) + input.globalTemperatureOffsetC;
+  const land = new Float64Array(MONTHS);
+  const sea = new Float64Array(MONTHS);
+  for (let m = 0; m < MONTHS; m++) {
+    const t = monthMidPhase(m);
+    const qLand = dailyInsolationWm2(latitudeDeg, solarDeclinationDeg(t - LAND_LAG_YEAR, input.axialTiltDeg));
+    const qSea = dailyInsolationWm2(latitudeDeg, solarDeclinationDeg(t - SEA_LAG_YEAR, input.axialTiltDeg));
+    land[m] = meanT + LAND_SEASONAL_RESPONSE * SEASONAL_SLOPE_C_PER_WM2 * (qLand - meanQ);
+    sea[m] = Math.max(SEAWATER_FREEZING_C, meanT + SEA_SEASONAL_RESPONSE * SEASONAL_SLOPE_C_PER_WM2 * (qSea - meanQ));
+  }
+  return { land, sea };
+}
+
+/** Local (windless) temperatures: every land cell behaves as if deep inland. */
+export interface LocalTemperatures {
+  readonly widthCells: number;
+  readonly heightCells: number;
+  readonly temperatureDeciC: Int16Array;
+}
+
+export function computeMonthlyTemperatures(input: ClimateInput): LocalTemperatures {
+  const { widthCells: w, heightCells: h, altitudeM, seaLevelM } = input;
   const size = w * h;
   const out = new Int16Array(MONTHS * size);
 
   for (let y = 0; y < h; y++) {
     // Everything that depends only on latitude is computed once per row.
-    const lat = rowLatitudeDeg(input, y);
-    const meanQ = annualMeanInsolationWm2(lat, axialTiltDeg);
-    const meanT = meanTemperatureFromInsolationC(meanQ) + input.globalTemperatureOffsetC;
-    const landSwing = new Float64Array(MONTHS);
-    const seaSwing = new Float64Array(MONTHS);
-    for (let m = 0; m < MONTHS; m++) {
-      const t = monthMidPhase(m);
-      const qLand = dailyInsolationWm2(lat, solarDeclinationDeg(t - LAND_LAG_YEAR, axialTiltDeg));
-      const qSea = dailyInsolationWm2(lat, solarDeclinationDeg(t - SEA_LAG_YEAR, axialTiltDeg));
-      landSwing[m] = LAND_SEASONAL_RESPONSE * SEASONAL_SLOPE_C_PER_WM2 * (qLand - meanQ);
-      seaSwing[m] = SEA_SEASONAL_RESPONSE * SEASONAL_SLOPE_C_PER_WM2 * (qSea - meanQ);
-    }
-
+    const row = rowSeaLevelTemperaturesC(rowLatitudeDeg(input, y), input);
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
       const isLand = altitudeM[i] > seaLevelM;
       const coolingC = isLand ? (altitudeM[i] - seaLevelM) * LAPSE_RATE_C_PER_M : 0;
-      const swing = isLand ? landSwing : seaSwing;
+      const base = isLand ? row.land : row.sea;
       for (let m = 0; m < MONTHS; m++) {
-        const t = meanT + swing[m] - coolingC;
-        out[m * size + i] = Math.round((isLand ? t : Math.max(SEAWATER_FREEZING_C, t)) * TEMPERATURE_SCALE);
+        out[m * size + i] = Math.round((base[m] - coolingC) * TEMPERATURE_SCALE);
       }
     }
   }
-  const winds = computeMonthlyWinds(h, (y) => rowLatitudeDeg(input, y), axialTiltDeg);
-  return { widthCells: w, heightCells: h, temperatureDeciC: out, ...winds };
+  return { widthCells: w, heightCells: h, temperatureDeciC: out };
 }

@@ -220,7 +220,7 @@ export class EditorShell implements OnInit {
   }
 
   ngOnInit(): void {
-    void this.facade.restoreLastSession();
+    void this.facade.startUp();
   }
 
   protected create(request: NewMapRequest): void {
