@@ -18,6 +18,8 @@ import { CellPoint } from '../../domain/terrain/brushes';
 import { TerrainRaster } from '../../rendering/terrain-raster';
 import { cellToScreen, fitViewport, panBy, resize, screenToCell, Viewport, zoomAt, zoomLimits } from '../../rendering/viewport';
 import { loadView, saveView } from './view-memory';
+import { drawWindOverlay } from '../../rendering/wind-overlay';
+import { windFromDirection } from '../../domain/climate/wind';
 import { drawLatitudeOverlay, PIN_HIT_TOLERANCE_PX, pinScreenY } from '../../rendering/latitude-overlay';
 
 const WHEEL_ZOOM_SPEED = 0.0015;
@@ -51,6 +53,9 @@ const BACKGROUND = '#e2cfa6';
         <span class="chip chip--accent" title="Altitude"><cc-icon name="altitude" [size]="9" /> {{ info.altitudeM | number: '1.0-0' }} m</span>
         @if (info.temperatureC !== null) {
           <span class="chip" title="Température à la saison affichée">{{ info.temperatureC | number: '1.0-0' }} °C</span>
+        }
+        @if (info.windLabel) {
+          <span class="chip" title="Vent dominant (d’où il vient) et sa vitesse">vent {{ info.windLabel }}</span>
         }
       }
       @if (visibleWidthKm(); as km) {
@@ -99,7 +104,9 @@ export class MapCanvas {
     const km = map.settings.baseCellKm;
     this.facade.yearPhase();
     this.facade.hasClimate();
-    return { xKm: point.x * km, yKm: point.y * km, altitudeM, temperatureC: this.facade.temperatureAt(point) };
+    const wind = this.facade.windAt(point);
+    const windLabel = wind ? `${windFromDirection(wind)} ${Math.hypot(wind.uMs, wind.vMs).toFixed(0)} m/s` : null;
+    return { xKm: point.x * km, yKm: point.y * km, altitudeM, temperatureC: this.facade.temperatureAt(point), windLabel };
   });
 
   protected readonly visibleWidthKm = computed(() => {
@@ -118,6 +125,7 @@ export class MapCanvas {
       this.facade.brush();
       this.facade.effectiveTool();
       this.facade.climateOverlay();
+      this.facade.windOverlay();
       this.facade.latitudePins();
       this.facade.displayedLatitudes();
       this.hoveredPin();
@@ -253,6 +261,8 @@ export class MapCanvas {
     if (this.raster.setTemperature(this.facade.climateOverlay())) dirty.push(this.raster.fullRect());
     this.raster.update(dirty);
     this.raster.draw(ctx, vp);
+    const wind = this.facade.windOverlay();
+    if (wind) drawWindOverlay(ctx, vp, wind.result, wind.yearPhase);
     this.drawBrushCursor(ctx, vp, map);
 
     const pins = this.facade.latitudePins();

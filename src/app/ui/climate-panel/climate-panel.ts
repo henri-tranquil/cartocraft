@@ -15,6 +15,7 @@ const MONTH_NAMES = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'jui
 const VIEWS: readonly { id: ViewMode; icon: IconName; label: string; title: string }[] = [
   { id: 'relief', icon: 'relief', label: 'Relief', title: 'Couleurs d’altitude (édition)' },
   { id: 'temperature', icon: 'climate', label: 'Temp.', title: 'Températures à la saison choisie' },
+  { id: 'wind', icon: 'wind', label: 'Vents', title: 'Vents dominants à la saison choisie (les flèches vont où va l’air)' },
 ];
 
 const STATUS_LABELS: Record<ClimateStatus, string> = {
@@ -107,6 +108,8 @@ function monthOf(phase: number): number {
         <span class="bar" [style.background]="legendGradient"></span>
         <div class="ticks"><span>{{ minC }}°</span><span>0°</span><span>+{{ maxC }}°</span></div>
       </div>
+    } @else if (facade.viewMode() === 'wind') {
+      <p class="hint">Les flèches vont là où va l’air ; ○ = zone de calme. Fais glisser la saison : les ceintures de vents suivent le soleil.</p>
     }
 
     <p class="status" role="status">
@@ -119,12 +122,12 @@ function monthOf(phase: number): number {
   `,
   styles: `
     :host { display: flex; flex-direction: column; gap: 14px; }
-    .views { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .views { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
     .views .cc-btn { height: 56px; flex-direction: column; gap: 5px; }
     .lat { padding: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 11px; font-weight: 600; }
     .lat-head { display: flex; align-items: center; justify-content: space-between; }
     .ruler-btn { height: 24px; padding: 0 10px; --cc-shadow: 2px; }
-    .hint { margin: 0; font-weight: 500; color: var(--cc-muted); }
+    .hint { margin: 0; font-size: 11px; font-weight: 500; color: var(--cc-muted); }
     .pin-row { display: flex; align-items: center; gap: 6px; }
     .pin-tag { flex: 1; }
     .pin-row .cc-input { width: 64px; }

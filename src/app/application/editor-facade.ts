@@ -13,6 +13,7 @@ import { CellPoint } from '../domain/terrain/brushes';
 import { CellRect, getCell, isInside } from '../domain/terrain/tiled-grid';
 import { AutoSave } from './auto-save';
 import { ClimateService } from './climate';
+import { windAtRow, WindVector } from '../domain/climate/wind';
 import { ClimateResult, temperatureAtC } from '../domain/climate/climate-model';
 import { MapStore } from './map-store';
 import { MAP_FILE_CODEC, MAP_REPOSITORY } from './ports';
@@ -25,7 +26,7 @@ import {
 } from './tools/terrain-brush-tools';
 
 /** What the map shows: the editing relief view, or a climate field. */
-export type ViewMode = 'relief' | 'temperature';
+export type ViewMode = 'relief' | 'temperature' | 'wind';
 
 /** What the renderer needs to colour by temperature. */
 export interface ClimateOverlay {
@@ -115,6 +116,12 @@ export class EditorFacade {
   readonly climateStatus = this.climate.status;
   readonly climateDurationMs = this.climate.lastDurationMs;
   readonly hasClimate = computed(() => this.climate.result() !== null);
+  /** Wind arrows to draw over the relief colours; null outside the wind view. */
+  readonly windOverlay = computed<ClimateOverlay | null>(() => {
+    const result = this.climate.result();
+    return this.viewModeState() === 'wind' && result ? { result, yearPhase: this.yearPhaseState() } : null;
+  });
+
   /** Null in relief view or before the first climate result. */
   readonly climateOverlay = computed<ClimateOverlay | null>(() => {
     const result = this.climate.result();
@@ -229,6 +236,13 @@ export class EditorFacade {
     const y = Math.floor(point.y);
     if (x < 0 || y < 0 || x >= result.widthCells || y >= result.heightCells) return null;
     return temperatureAtC(result, y * result.widthCells + x, this.yearPhaseState());
+  }
+
+  /** Prevailing wind under a point at the current season; null if unknown. */
+  windAt(point: CellPoint): WindVector | null {
+    const result = this.climate.result();
+    if (!result || point.y < 0 || point.y >= result.heightCells) return null;
+    return windAtRow(result, point.y, this.yearPhaseState());
   }
 
   // --- Climate & view ---

@@ -20,7 +20,7 @@ addEventListener('message', (event: MessageEvent<ClimateWorkerRequest>) => {
           result,
           durationMs: performance.now() - start,
         };
-        postMessage(response, [result.temperatureDeciC.buffer]);
+        postMessage(response, [result.temperatureDeciC.buffer, result.windUMs.buffer, result.windVMs.buffer]);
       } catch (error) {
         const response: ClimateWorkerResponse = { kind: 'error', requestId: request.requestId, message: String(error) };
         postMessage(response);

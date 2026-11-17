@@ -5,6 +5,7 @@ export type IconName =
   | 'maps'
   | 'relief'
   | 'climate'
+  | 'wind'
   | 'water'
   | 'names'
   | 'pan'
@@ -58,6 +59,9 @@ export type IconName =
         @case ('climate') {
           <circle cx="12" cy="12" r="4" />
           <path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2" />
+        }
+        @case ('wind') {
+          <path d="M3 8h11a3 3 0 10-3-3M3 12h16a3 3 0 11-3 3M3 16h8" />
         }
         @case ('water') {
           <path d="M12 3c4 5 6 8 6 11a6 6 0 01-12 0c0-3 2-6 6-11z" />

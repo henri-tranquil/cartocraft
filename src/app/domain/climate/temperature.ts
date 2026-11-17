@@ -1,3 +1,4 @@
+import { computeMonthlyWinds } from './wind';
 import { ClimateInput, ClimateResult, MONTHS, monthMidPhase, rowLatitudeDeg, TEMPERATURE_SCALE } from './climate-model';
 import { annualMeanInsolationWm2, dailyInsolationWm2, solarDeclinationDeg } from './insolation';
 
@@ -85,5 +86,6 @@ export function computeMonthlyTemperatures(input: ClimateInput): ClimateResult {
       }
     }
   }
-  return { widthCells: w, heightCells: h, temperatureDeciC: out };
+  const winds = computeMonthlyWinds(h, (y) => rowLatitudeDeg(input, y), axialTiltDeg);
+  return { widthCells: w, heightCells: h, temperatureDeciC: out, ...winds };
 }

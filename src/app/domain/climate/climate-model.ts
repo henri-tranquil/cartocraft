@@ -28,6 +28,12 @@ export interface ClimateResult {
   readonly heightCells: number;
   /** MONTHS consecutive row-major fields, month m at offset m * width * height. Tenths of °C. */
   readonly temperatureDeciC: Int16Array;
+  /**
+   * Prevailing wind per ROW (latitude-only for now), MONTHS × heightCells,
+   * month m at offset m * heightCells. Eastward / northward components, m/s.
+   */
+  readonly windUMs: Float32Array;
+  readonly windVMs: Float32Array;
 }
 
 /** Year phase at the middle of month `m` (0 = January). */
