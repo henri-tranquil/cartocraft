@@ -148,6 +148,12 @@ Le calcul se fait sur la grille de base (inutile de descendre plus fin), dans un
    - **une chaîne de montagnes bloque et dévie l'air froid** venu du nord. Ses vallées abritées restent plus douces.
 6. Sorties par saison : `temperature`, `precipitation`, plus un champ d'enneigement déduit de la température.
 
+**Implémentation (étape 4, briques 1-2)** :
+- Saison = phase de l'année `t ∈ [0,1[`, **0 = 1er janvier** (plus lisible dans l'UI que l'équinoxe).
+- 12 instantanés mensuels (milieu de mois) précalculés ; le curseur interpole entre deux mois. Stockage `Int16` en **dixièmes de °C** (24 Mo pour 1000², ~100 Mo pour 2048² : à surveiller).
+- Température moyenne annuelle = **table** insolation → °C calée sur les moyennes zonales terrestres (pas une droite : la vraie relation est plate sous les tropiques, raide vers les pôles). Amplitude saisonnière amortie et retardée par l'inertie thermique (terre 45 %, ~1 mois ; mer 12 %, ~2 mois). Surface de la mer bornée à −1,8 °C (gel de l'eau de mer).
+- Calcul dans `infrastructure/workers/climate.worker.ts` derrière le port `ClimateEngine` ; `ClimateService` relance avec un délai de 1,5 s après une édition, une seule exécution à la fois, résultats périmés ignorés (compteur de génération).
+
 Rendu : la couleur des terres suit un dégradé continu en fonction (température, humidité) : ocre sec, vert humide, blanc enneigé. Un curseur (timeline) de saison anime le tout : la neige descend, la végétation change de teinte, les fleuves du nord gèlent.
 
 ## Hydrologie (fleuves hybrides)

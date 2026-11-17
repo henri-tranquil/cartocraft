@@ -48,6 +48,9 @@ const BACKGROUND = '#e2cfa6';
       @if (hoverInfo(); as info) {
         <span class="chip" title="Position">{{ info.xKm | number: '1.0-0' }} · {{ info.yKm | number: '1.0-0' }} km</span>
         <span class="chip chip--accent" title="Altitude"><cc-icon name="altitude" [size]="9" /> {{ info.altitudeM | number: '1.0-0' }} m</span>
+        @if (info.temperatureC !== null) {
+          <span class="chip" title="Température à la saison affichée">{{ info.temperatureC | number: '1.0-0' }} °C</span>
+        }
       }
       @if (visibleWidthKm(); as km) {
         <span class="chip scale" title="Largeur visible">↔ {{ km | number: '1.0-0' }} km</span>
@@ -78,7 +81,7 @@ export class MapCanvas {
   private panning: { pointerId: number; lastX: number; lastY: number } | null = null;
   private viewSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
-  protected readonly cursor = computed(() => (this.facade.activeTool() === 'pan' ? 'grab' : 'crosshair'));
+  protected readonly cursor = computed(() => (this.facade.effectiveTool() === 'pan' ? 'grab' : 'crosshair'));
 
   protected readonly hoverInfo = computed(() => {
     this.facade.renderRevision(); // altitude changes while painting
@@ -88,7 +91,9 @@ export class MapCanvas {
     const altitudeM = this.facade.altitudeAt(point);
     if (altitudeM === null) return null;
     const km = map.settings.baseCellKm;
-    return { xKm: point.x * km, yKm: point.y * km, altitudeM };
+    this.facade.yearPhase();
+    this.facade.hasClimate();
+    return { xKm: point.x * km, yKm: point.y * km, altitudeM, temperatureC: this.facade.temperatureAt(point) };
   });
 
   protected readonly visibleWidthKm = computed(() => {
@@ -105,6 +110,8 @@ export class MapCanvas {
       this.viewport();
       this.hover();
       this.facade.brush();
+      this.facade.effectiveTool();
+      this.facade.climateOverlay();
       this.requestDraw();
     });
 
@@ -136,7 +143,7 @@ export class MapCanvas {
     if (!vp) return;
     this.canvasRef().nativeElement.setPointerCapture(event.pointerId);
     // Middle or right button always pans; left button uses the active tool.
-    if (event.button !== 0 || this.facade.activeTool() === 'pan') {
+    if (event.button !== 0 || this.facade.effectiveTool() === 'pan') {
       this.panning = { pointerId: event.pointerId, lastX: event.offsetX, lastY: event.offsetY };
       return;
     }
@@ -217,7 +224,10 @@ export class MapCanvas {
     const vp = this.viewport();
     if (!this.raster || !vp) return;
 
-    this.raster.update(this.facade.takeDirtyRects());
+    const dirty = this.facade.takeDirtyRects();
+    // Season or view change: every pixel's colour changes.
+    if (this.raster.setTemperature(this.facade.climateOverlay())) dirty.push(this.raster.fullRect());
+    this.raster.update(dirty);
     this.raster.draw(ctx, vp);
     this.drawBrushCursor(ctx, vp, map);
   }
@@ -243,7 +253,7 @@ export class MapCanvas {
 
   private drawBrushCursor(ctx: CanvasRenderingContext2D, vp: Viewport, map: WorldMap): void {
     const point = this.hover();
-    if (!point || this.facade.activeTool() === 'pan') return;
+    if (!point || this.facade.effectiveTool() === 'pan') return;
     const center = cellToScreen(vp, point.x, point.y);
     const radiusPx = (this.facade.brush().radiusKm / map.settings.baseCellKm) * vp.pixelsPerCell;
     ctx.lineWidth = 1.5;

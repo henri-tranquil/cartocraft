@@ -133,3 +133,17 @@ export function getCellClamped(grid: Int16TiledGrid, x: number, y: number): numb
   const size = grid.tileSize;
   return grid.tiles[((cy / size) | 0) * grid.tilesX + ((cx / size) | 0)][(cy % size) * size + (cx % size)];
 }
+
+/** Copies the grid into a plain row-major array (index = y * width + x). For whole-grid algorithms and workers. */
+export function toRowMajor(grid: Int16TiledGrid): Int16Array {
+  const out = new Int16Array(grid.widthCells * grid.heightCells);
+  const size = grid.tileSize;
+  for (let y = 0; y < grid.heightCells; y++) {
+    const tileRow = ((y / size) | 0) * grid.tilesX;
+    const rowInTile = (y % size) * size;
+    for (let x = 0; x < grid.widthCells; x++) {
+      out[y * grid.widthCells + x] = grid.tiles[tileRow + ((x / size) | 0)][rowInTile + (x % size)];
+    }
+  }
+  return out;
+}

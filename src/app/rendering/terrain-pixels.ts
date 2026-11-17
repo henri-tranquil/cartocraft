@@ -1,5 +1,19 @@
 import { CellRect, getCellClamped, INT16_MIN, Int16TiledGrid } from '../domain/terrain/tiled-grid';
+import { ClimateResult, monthBlend, TEMPERATURE_SCALE } from '../domain/climate/climate-model';
 import { AltitudePalette } from './style/altitude-palette';
+import { TEMPERATURE_PALETTE_MAX_C, TEMPERATURE_PALETTE_MIN_C } from './style/temperature-palette';
+
+/** Colour by temperature at a given season instead of by altitude. */
+export interface TemperatureLayer {
+  readonly result: ClimateResult;
+  readonly yearPhase: number;
+  /** From buildTemperaturePalette(). */
+  readonly rgb: Uint8Array;
+}
+
+/** In temperature view the sea keeps a hint of blue, so coasts stay readable. */
+const SEA_TINT = [169, 180, 208] as const;
+const SEA_TINT_WEIGHT = 0.35;
 
 /**
  * Hillshading: we light the terrain from the north-west, like a classic
@@ -33,6 +47,7 @@ export function renderTerrainPixels(
   out: Uint8ClampedArray,
   palette: AltitudePalette,
   cellSizeM: number,
+  temperature: TemperatureLayer | null = null,
 ): void {
   const size = grid.tileSize;
   const tileX0 = (tileIndex % grid.tilesX) * size;
@@ -40,6 +55,16 @@ export function renderTerrainPixels(
   const tile = grid.tiles[tileIndex];
   const slopeScale = VERTICAL_EXAGGERATION / (2 * cellSizeM);
   const [lx, ly, lz] = LIGHT;
+
+  // Temperature view: resolve the season blend once, not per pixel.
+  const tData = temperature?.result.temperatureDeciC;
+  const tWidth = temperature?.result.widthCells ?? 0;
+  const fieldSize = tWidth * (temperature?.result.heightCells ?? 0);
+  const blend = temperature ? monthBlend(temperature.yearPhase) : { m0: 0, m1: 0, f: 0 };
+  const off0 = blend.m0 * fieldSize;
+  const off1 = blend.m1 * fieldSize;
+  const tLut = temperature?.rgb;
+  const tMaxIndex = TEMPERATURE_PALETTE_MAX_C - TEMPERATURE_PALETTE_MIN_C;
 
   for (let y = rect.y0; y <= rect.y1; y++) {
     const rowOffset = (y - tileY0) * size;
@@ -54,11 +79,31 @@ export function renderTerrainPixels(
       // Flat ground (brightness = lz) keeps its palette colour.
       const shade = Math.min(1.6, Math.max(0.35, 1 + (brightness - lz) * gain));
 
-      const c = (altitude - INT16_MIN) * 3;
+      let r: number;
+      let g: number;
+      let b: number;
+      if (tData && tLut) {
+        const i = y * tWidth + x;
+        const tC = (tData[off0 + i] + (tData[off1 + i] - tData[off0 + i]) * blend.f) / TEMPERATURE_SCALE;
+        const li = Math.min(tMaxIndex, Math.max(0, Math.round(tC) - TEMPERATURE_PALETTE_MIN_C)) * 3;
+        r = tLut[li];
+        g = tLut[li + 1];
+        b = tLut[li + 2];
+        if (altitude <= palette.seaLevelM) {
+          r += (SEA_TINT[0] - r) * SEA_TINT_WEIGHT;
+          g += (SEA_TINT[1] - g) * SEA_TINT_WEIGHT;
+          b += (SEA_TINT[2] - b) * SEA_TINT_WEIGHT;
+        }
+      } else {
+        const c = (altitude - INT16_MIN) * 3;
+        r = palette.rgb[c];
+        g = palette.rgb[c + 1];
+        b = palette.rgb[c + 2];
+      }
       const o = local * 4;
-      out[o] = palette.rgb[c] * shade; // Uint8ClampedArray clamps to 0..255 by itself
-      out[o + 1] = palette.rgb[c + 1] * shade;
-      out[o + 2] = palette.rgb[c + 2] * shade;
+      out[o] = r * shade; // Uint8ClampedArray clamps to 0..255 by itself
+      out[o + 1] = g * shade;
+      out[o + 2] = b * shade;
       out[o + 3] = 255;
     }
   }

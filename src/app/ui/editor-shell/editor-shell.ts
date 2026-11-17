@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, effect, inject, OnInit, s
 import { EditorFacade } from '../../application/editor-facade';
 import { SaveStatus } from '../../application/auto-save';
 import { Icon, IconName } from '../icon/icon';
+import { ClimatePanel } from '../climate-panel/climate-panel';
 import { MapCanvas } from '../map-canvas/map-canvas';
 import { MapList } from '../map-list/map-list';
 import { NewMapDialog, NewMapRequest } from '../new-map-dialog/new-map-dialog';
@@ -22,7 +23,7 @@ interface SectionDef {
 const SECTIONS: readonly SectionDef[] = [
   { id: 'maps', icon: 'maps', short: 'Cartes', label: 'Mes cartes', available: true },
   { id: 'relief', icon: 'relief', short: 'Relief', label: 'Relief', available: true },
-  { id: 'climate', icon: 'climate', short: 'Climat', label: 'Climat — bientôt', available: false },
+  { id: 'climate', icon: 'climate', short: 'Climat', label: 'Climat : températures et saisons', available: true },
   { id: 'water', icon: 'water', short: 'Eaux', label: 'Eaux — bientôt', available: false },
   { id: 'names', icon: 'names', short: 'Noms', label: 'Noms — bientôt', available: false },
 ];
@@ -38,7 +39,7 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
 @Component({
   selector: 'cc-editor-shell',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Icon, MapCanvas, MapList, NewMapDialog, ToolPanel],
+  imports: [ClimatePanel, Icon, MapCanvas, MapList, NewMapDialog, ToolPanel],
   host: {
     '(window:keydown)': 'onKeydown($event)',
   },
@@ -68,6 +69,9 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
         }
         @case ('relief') {
           <cc-tool-panel />
+        }
+        @case ('climate') {
+          <cc-climate-panel />
         }
       }
 
@@ -192,6 +196,8 @@ export class EditorShell implements OnInit {
       if (id !== previousId) this.activeSection.set(id ? 'relief' : 'maps');
       previousId = id;
     });
+    // Only the Relief panel edits the terrain; elsewhere a click just moves the map.
+    effect(() => this.facade.setEditingEnabled(this.activeSection() === 'relief'));
   }
 
   ngOnInit(): void {

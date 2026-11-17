@@ -10,6 +10,8 @@ import { MapFormatError } from '../domain/serialization/map-document';
 import { CellPoint } from '../domain/terrain/brushes';
 import { CellRect, getCell, isInside } from '../domain/terrain/tiled-grid';
 import { AutoSave } from './auto-save';
+import { ClimateService } from './climate';
+import { ClimateResult, temperatureAtC } from '../domain/climate/climate-model';
 import { MapStore } from './map-store';
 import { MAP_FILE_CODEC, MAP_REPOSITORY } from './ports';
 import { EditorTool, ToolContext } from './tools/editor-tool';
@@ -19,6 +21,15 @@ import {
   RaiseTerrainTool,
   SmoothTerrainTool,
 } from './tools/terrain-brush-tools';
+
+/** What the map shows: the editing relief view, or a climate field. */
+export type ViewMode = 'relief' | 'temperature';
+
+/** What the renderer needs to colour by temperature. */
+export interface ClimateOverlay {
+  readonly result: ClimateResult;
+  readonly yearPhase: number;
+}
 
 /** 'pan' is a view-only mode handled by the canvas; the others are EditorTools. */
 export type ToolId = 'pan' | 'raise' | 'lower' | 'smooth';
@@ -47,6 +58,10 @@ export class EditorFacade {
   private readonly repository = inject(MAP_REPOSITORY);
   private readonly fileCodec = inject(MAP_FILE_CODEC);
   private readonly autoSave = inject(AutoSave);
+  private readonly climate = inject(ClimateService);
+  private readonly viewModeState = signal<ViewMode>('relief');
+  /** Year phase t ∈ [0, 1[ (0 = 1st January) shown by the season slider. */
+  private readonly yearPhaseState = signal(0.54);
   private readonly history = new CommandHistory();
   /** CommandHistory is plain TS; this counter makes its state observable. */
   private readonly historyRevision = signal(0);
@@ -54,6 +69,8 @@ export class EditorFacade {
   private readonly errorState = signal<string | null>(null);
   private readonly brushState = signal<BrushOptions>({ radiusKm: 25, strength: 0.5 });
   private readonly activeToolState = signal<ToolId>('raise');
+  /** False while a non-editing panel (maps, climate) is shown: the map can only be panned. */
+  private readonly editingEnabledState = signal(true);
   private readonly tools: Record<Exclude<ToolId, 'pan'>, EditorTool> = {
     raise: new RaiseTerrainTool(() => this.brushState()),
     lower: new LowerTerrainTool(() => this.brushState()),
@@ -71,7 +88,20 @@ export class EditorFacade {
   readonly error = this.errorState.asReadonly();
   readonly fileExtension = this.fileCodec.fileExtension;
   readonly activeTool = this.activeToolState.asReadonly();
+  /** The tool that actually handles the pointer: 'pan' whenever editing is disabled. */
+  readonly effectiveTool = computed<ToolId>(() => (this.editingEnabledState() ? this.activeToolState() : 'pan'));
   readonly brush = this.brushState.asReadonly();
+
+  readonly viewMode = this.viewModeState.asReadonly();
+  readonly yearPhase = this.yearPhaseState.asReadonly();
+  readonly climateStatus = this.climate.status;
+  readonly climateDurationMs = this.climate.lastDurationMs;
+  readonly hasClimate = computed(() => this.climate.result() !== null);
+  /** Null in relief view or before the first climate result. */
+  readonly climateOverlay = computed<ClimateOverlay | null>(() => {
+    const result = this.climate.result();
+    return this.viewModeState() === 'temperature' && result ? { result, yearPhase: this.yearPhaseState() } : null;
+  });
 
   // Read-only access for the renderer: rendering reads the model, never writes it.
   readonly renderMap = this.store.map;
@@ -127,6 +157,7 @@ export class EditorFacade {
         this.history.clear();
         this.historyRevision.update((r) => r + 1);
         this.store.setMap(null);
+        this.climate.reset();
       }
       await this.repository.delete(id);
       await this.refreshList();
@@ -172,10 +203,35 @@ export class EditorFacade {
     return grid && isInside(grid, x, y) ? getCell(grid, x, y) : null;
   }
 
+  /** Temperature under a point at the current season, °C; null if unknown. */
+  temperatureAt(point: CellPoint): number | null {
+    const result = this.climate.result();
+    if (!result) return null;
+    const x = Math.floor(point.x);
+    const y = Math.floor(point.y);
+    if (x < 0 || y < 0 || x >= result.widthCells || y >= result.heightCells) return null;
+    return temperatureAtC(result, y * result.widthCells + x, this.yearPhaseState());
+  }
+
+  // --- Climate & view ---
+
+  setViewMode(mode: ViewMode): void {
+    this.viewModeState.set(mode);
+  }
+
+  setYearPhase(phase: number): void {
+    this.yearPhaseState.set(((phase % 1) + 1) % 1);
+  }
+
   // --- Tools ---
 
   selectTool(id: ToolId): void {
     if (!this.gestureTool) this.activeToolState.set(id);
+  }
+
+  /** The relief tool is remembered and comes back when editing is re-enabled. */
+  setEditingEnabled(enabled: boolean): void {
+    if (!this.gestureTool) this.editingEnabledState.set(enabled);
   }
 
   setBrush(options: Partial<BrushOptions>): void {
@@ -186,7 +242,7 @@ export class EditorFacade {
   }
 
   pointerDown(point: CellPoint): void {
-    const id = this.activeToolState();
+    const id = this.effectiveTool();
     const ctx = this.toolContext();
     if (id === 'pan' || !ctx || this.gestureTool) return;
     const tool = this.tools[id];
@@ -218,6 +274,7 @@ export class EditorFacade {
     this.history.record(result.command);
     this.store.touchMap();
     this.autoSave.markChanged(result.change.terrainTiles, result.change.metadata);
+    this.climate.invalidate();
     this.historyRevision.update((r) => r + 1);
   }
 
@@ -251,6 +308,7 @@ export class EditorFacade {
     if (!change) return;
     this.store.applyChange(change);
     this.autoSave.markChanged(change.terrainTiles, change.metadata);
+    if (change.terrainTiles.length > 0) this.climate.invalidate();
     this.historyRevision.update((r) => r + 1);
     if (change.metadata) void this.refreshList();
   }
@@ -267,6 +325,8 @@ export class EditorFacade {
     this.history.clear();
     this.historyRevision.update((r) => r + 1);
     this.store.setMap(map);
+    this.climate.reset();
+    this.climate.invalidate(0);
   }
 
   private async refreshList(): Promise<void> {

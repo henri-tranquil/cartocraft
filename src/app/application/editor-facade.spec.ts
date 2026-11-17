@@ -5,7 +5,9 @@ import { WorldMap } from '../domain/map/world-map';
 import { MapFormatError } from '../domain/serialization/map-document';
 import { EditorFacade } from './editor-facade';
 import { MapStore } from './map-store';
-import { MAP_FILE_CODEC, MAP_REPOSITORY } from './ports';
+import { CLIMATE_ENGINE, MAP_FILE_CODEC, MAP_REPOSITORY } from './ports';
+import { computeMonthlyTemperatures } from '../domain/climate/temperature';
+import { ClimateEngine } from '../domain/climate/climate-engine';
 
 class InMemoryRepository implements MapRepository {
   readonly maps = new Map<string, WorldMap>();
@@ -24,6 +26,9 @@ class InMemoryRepository implements MapRepository {
     this.maps.delete(id);
   }
 }
+
+/** Same algorithm as the worker, run synchronously. */
+const inlineClimateEngine: ClimateEngine = { compute: async (input) => computeMonthlyTemperatures(input) };
 
 const failingCodec: MapFileCodec = {
   fileExtension: '.cartocraft',
@@ -45,6 +50,7 @@ describe('EditorFacade', () => {
       providers: [
         { provide: MAP_REPOSITORY, useValue: repository },
         { provide: MAP_FILE_CODEC, useValue: failingCodec },
+        { provide: CLIMATE_ENGINE, useValue: inlineClimateEngine },
       ],
     });
     facade = TestBed.inject(EditorFacade);
@@ -120,6 +126,36 @@ describe('EditorFacade', () => {
     facade.pointerDown({ x: 100, y: 100 });
     facade.pointerUp();
     expect(facade.undoLabel()).toBeNull();
+  });
+
+  it('computes the climate when a map opens and exposes temperatures by season', async () => {
+    await facade.createBlankMap({ ...DEFAULT_MAP_SETTINGS, widthKm: 100, heightKm: 100 }, 'A');
+    await vi.waitFor(() => expect(facade.climateStatus()).toBe('ready'));
+    facade.setViewMode('temperature');
+    expect(facade.climateOverlay()).not.toBeNull();
+    facade.setYearPhase(0.04);
+    const january = facade.temperatureAt({ x: 50, y: 50 })!;
+    facade.setYearPhase(0.54);
+    expect(facade.temperatureAt({ x: 50, y: 50 })!).toBeGreaterThan(january);
+  });
+
+  it('marks the climate stale after a terrain edit', async () => {
+    await facade.createBlankMap({ ...DEFAULT_MAP_SETTINGS, widthKm: 100, heightKm: 100 }, 'A');
+    await vi.waitFor(() => expect(facade.climateStatus()).toBe('ready'));
+    facade.pointerDown({ x: 50, y: 50 });
+    facade.pointerUp();
+    expect(facade.climateStatus()).toBe('stale');
+  });
+
+  it('only pans while editing is disabled, then restores the relief tool', async () => {
+    await facade.createBlankMap(DEFAULT_MAP_SETTINGS, 'A');
+    facade.setEditingEnabled(false);
+    expect(facade.effectiveTool()).toBe('pan');
+    facade.pointerDown({ x: 100, y: 100 });
+    facade.pointerUp();
+    expect(facade.undoLabel()).toBeNull();
+    facade.setEditingEnabled(true);
+    expect(facade.effectiveTool()).toBe('raise');
   });
 
   it('reports import errors without touching the open map', async () => {
