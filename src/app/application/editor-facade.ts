@@ -179,6 +179,8 @@ export class EditorFacade {
   readonly renderMap = this.store.map;
   readonly renderRevision = this.store.revision;
   readonly renderClimate = this.climate.result;
+  /** Rivers (null until the first climate run of the map). */
+  readonly renderHydrology = this.climate.hydrology;
   readonly undoLabel = computed(() => {
     this.historyRevision();
     return this.history.undoLabel;
@@ -336,6 +338,15 @@ export class EditorFacade {
     const result = this.climate.result();
     if (!result || point.x < 0 || point.y < 0 || point.x >= result.widthCells || point.y >= result.heightCells) return null;
     return precipitationAtMm(result, point.x, point.y, this.yearPhaseState());
+  }
+
+  /** Mean annual river flow through a point, m³/s; null if unknown. */
+  dischargeAt(point: CellPoint): number | null {
+    const result = this.climate.hydrology();
+    const x = Math.floor(point.x);
+    const y = Math.floor(point.y);
+    if (!result || x < 0 || y < 0 || x >= result.widthCells || y >= result.heightCells) return null;
+    return result.dischargeM3s[y * result.widthCells + x];
   }
 
   /** Prevailing wind under a point at the current season; null if unknown. */

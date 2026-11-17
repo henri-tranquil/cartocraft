@@ -1,9 +1,9 @@
-import { ClimateEngine } from '../../domain/climate/climate-engine';
-import { ClimateInput, ClimateResult } from '../../domain/climate/climate-model';
+import { ClimateEngine, ClimateRun } from '../../domain/climate/climate-engine';
+import { ClimateInput } from '../../domain/climate/climate-model';
 import { ClimateWorkerRequest, ClimateWorkerResponse } from './climate-protocol';
 
 interface Pending {
-  readonly resolve: (result: ClimateResult) => void;
+  readonly resolve: (result: ClimateRun) => void;
   readonly reject: (error: Error) => void;
 }
 
@@ -18,10 +18,10 @@ export class WorkerClimateEngine implements ClimateEngine {
   private nextRequestId = 1;
   private readonly pending = new Map<number, Pending>();
 
-  compute(input: ClimateInput): Promise<ClimateResult> {
+  compute(input: ClimateInput): Promise<ClimateRun> {
     const worker = this.ensureWorker();
     const requestId = this.nextRequestId++;
-    return new Promise<ClimateResult>((resolve, reject) => {
+    return new Promise<ClimateRun>((resolve, reject) => {
       this.pending.set(requestId, { resolve, reject });
       const request: ClimateWorkerRequest = { kind: 'compute', requestId, input };
       // Altitudes are a fresh copy made for this request: transfer it instead of cloning.

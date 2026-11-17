@@ -25,7 +25,7 @@ interface SectionDef {
 const SECTIONS: readonly SectionDef[] = [
   { id: 'relief', icon: 'relief', short: 'Relief', label: 'Relief : sculpter le terrain', available: true },
   { id: 'climate', icon: 'climate', short: 'Climat', label: 'Climat : latitudes, températures, saisons', available: true },
-  { id: 'water', icon: 'water', short: 'Eaux', label: 'Eaux — bientôt', available: false },
+  { id: 'water', icon: 'water', short: 'Eaux', label: 'Eaux : fleuves calculés depuis le relief et les pluies', available: true },
   { id: 'names', icon: 'names', short: 'Noms', label: 'Noms : villes, sommets, mers, régions', available: true },
   { id: 'render', icon: 'render', short: 'Rendu', label: 'Rendu : la carte illustrée, à l’ancienne', available: true },
 ];
@@ -99,11 +99,17 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
           @case ('climate') {
             <cc-climate-panel />
           }
+          @case ('water') {
+            <p class="hint">
+              Les fleuves sont calculés à partir du relief et des pluies, en même temps que le climat. Plus on zoome, plus les petits cours d’eau
+              apparaissent ; le débit s’affiche au survol. Pour déplacer un fleuve, creusez une vallée dans Relief : l’eau suivra la pente.
+            </p>
+          }
           @case ('names') {
             <cc-names-panel />
           }
           @case ('render') {
-            <p class="hint">Vue « carte ancienne », en lecture seule : le clic déplace la carte. Les fleuves viendront ensuite.</p>
+            <p class="hint">Vue « carte ancienne », en lecture seule : le clic déplace la carte. Les fleuves et les noms y figurent.</p>
           }
         }
         <div class="map-actions">

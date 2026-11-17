@@ -6,7 +6,7 @@ import { MapFormatError } from '../domain/serialization/map-document';
 import { EditorFacade } from './editor-facade';
 import { MapStore } from './map-store';
 import { CLIMATE_ENGINE, MAP_FILE_CODEC, MAP_REPOSITORY } from './ports';
-import { computeClimate } from '../domain/climate/climate';
+import { computeClimateRun } from '../domain/climate/climate-run';
 import { ClimateEngine } from '../domain/climate/climate-engine';
 
 class InMemoryRepository implements MapRepository {
@@ -28,7 +28,7 @@ class InMemoryRepository implements MapRepository {
 }
 
 /** Same algorithm as the worker, run synchronously. */
-const inlineClimateEngine: ClimateEngine = { compute: async (input) => computeClimate(input) };
+const inlineClimateEngine: ClimateEngine = { compute: async (input) => computeClimateRun(input) };
 
 /** These tests wait for a full climate run (map + margin), synchronous here. */
 const CLIMATE_TEST_TIMEOUT_MS = 20_000;

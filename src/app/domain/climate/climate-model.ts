@@ -48,6 +48,13 @@ export interface ClimateResult {
    * month and the previous one. Per fine cell, MONTHS fields. Drives vegetation colour.
    */
   readonly wetnessPct: Uint8Array;
+  /**
+   * Annual runoff, mm/year, per fine cell (0 on the sea): the sum over the
+   * months of max(0, precipitation − potential evaporation). Crude water
+   * balance (no soil storage, snow melts the month it falls in the total), but
+   * it puts the rivers where the rain is: what feeds the hydrology.
+   */
+  readonly runoffMm: Float32Array;
   /** Snow depth on the ground, cm (255 = 2.55 m or more), per fine cell, MONTHS fields. */
   readonly snowDepthCm: Uint8Array;
 }

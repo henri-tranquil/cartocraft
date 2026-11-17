@@ -214,6 +214,7 @@ export function computeClimate(input: ClimateInput): ClimateResult {
   const temperatureDeciC = new Int16Array(MONTHS * size);
   const wetnessPct = new Uint8Array(MONTHS * size);
   const snowDepthCm = new Uint8Array(MONTHS * size);
+  const runoffMm = new Float32Array(size);
   const swe = new Float32Array(size);
   const fineDelta = new Float32Array(size);
   let fineRain = new Float32Array(size);
@@ -242,6 +243,8 @@ export function computeClimate(input: ClimateInput): ClimateResult {
         const rain = (fineRain[i] + previousRain[i]) / 2;
         const pet = potentialEvaporationMm(t / TEMPERATURE_SCALE);
         wetnessPct[offset + i] = Math.round((100 * rain) / (rain + pet));
+        // Water balance: what the warmth cannot evaporate runs off to the rivers.
+        runoffMm[i] += Math.max(0, fineRain[i] - pet);
         // Snowpack: skip the (many) cells that are warm and snow-free.
         const before = swe[i];
         if (before === 0 && t > WARM_NO_SNOW_DECI) continue;
@@ -270,6 +273,7 @@ export function computeClimate(input: ClimateInput): ClimateResult {
     windVMs,
     precipitationMm,
     wetnessPct,
+    runoffMm,
   };
 }
 

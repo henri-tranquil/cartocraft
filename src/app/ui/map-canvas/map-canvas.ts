@@ -25,6 +25,7 @@ import { windFromDirection } from '../../domain/climate/wind';
 import { drawLatitudeOverlay, LatitudeHandle, latitudeScreenY, PIN_HIT_TOLERANCE_PX, pinScreenY, tiltLines } from '../../rendering/latitude-overlay';
 import { latitudeAtRow } from '../../domain/map/latitude';
 import { canvasTextMeasure, drawLabels, drawLasso, drawZoneOutlines, labelAt, layoutLabels, PlacedLabel } from '../../rendering/label-layer';
+import { drawRivers, EDIT_RIVER_STYLE, VINTAGE_RIVER_STYLE } from '../../rendering/river-layer';
 import { simplifyPolyline } from '../../domain/features/polygon';
 import { isZoneTemplate } from '../../domain/features/map-feature';
 import { LABEL_STYLE } from '../../rendering/style/label-style';
@@ -71,6 +72,9 @@ const LASSO_TOLERANCE_PX = 1.5;
         }
         @if (info.snowCm !== null && info.snowCm >= 1) {
           <span class="chip" title="Épaisseur du manteau neigeux">neige {{ info.snowCm >= 255 ? '≥ 255' : (info.snowCm | number: '1.0-0') }} cm</span>
+        }
+        @if (info.dischargeM3s !== null && info.dischargeM3s >= 1) {
+          <span class="chip" title="Débit moyen annuel du cours d’eau">débit {{ info.dischargeM3s | number: '1.0-0' }} m³/s</span>
         }
         @if (info.windLabel) {
           <span class="chip" title="Vent dominant (d’où il vient) et sa vitesse">vent {{ info.windLabel }}</span>
@@ -138,7 +142,7 @@ export class MapCanvas {
     this.facade.hasClimate();
     const wind = this.facade.windAt(point);
     const windLabel = wind ? `${windFromDirection(wind)} ${Math.hypot(wind.uMs, wind.vMs).toFixed(0)} m/s` : null;
-    return { xKm: point.x * km, yKm: point.y * km, altitudeM, temperatureC: this.facade.temperatureAt(point), precipitationMm: this.facade.precipitationAt(point), snowCm: this.facade.snowAt(point), windLabel };
+    return { xKm: point.x * km, yKm: point.y * km, altitudeM, temperatureC: this.facade.temperatureAt(point), precipitationMm: this.facade.precipitationAt(point), snowCm: this.facade.snowAt(point), windLabel, dischargeM3s: this.facade.dischargeAt(point) };
   });
 
   protected readonly visibleWidthKm = computed(() => {
@@ -154,6 +158,7 @@ export class MapCanvas {
       this.facade.renderMap();
       this.facade.rendered();
       this.facade.renderClimate();
+      this.facade.renderHydrology();
       this.viewport();
       this.hover();
       this.facade.brush();
@@ -368,6 +373,8 @@ export class MapCanvas {
 
     if (this.facade.rendered()) {
       this.drawRendered(ctx, vp, map);
+      const hydrology = this.facade.renderHydrology();
+      if (hydrology && this.vintage?.map === map) drawRivers(ctx, vp, hydrology.rivers, map.settings.baseCellKm, VINTAGE_RIVER_STYLE);
       this.drawNames(ctx, vp, map);
       return; // dirty rects stay queued for the design raster
     }
@@ -378,6 +385,8 @@ export class MapCanvas {
     this.raster.update(dirty);
     this.raster.draw(ctx, vp);
     const wind = this.facade.windOverlay();
+    const hydrology = this.facade.renderHydrology();
+    if (hydrology) drawRivers(ctx, vp, hydrology.rivers, map.settings.baseCellKm, EDIT_RIVER_STYLE);
     if (wind) drawWindOverlay(ctx, vp, wind.result, wind.yearPhase);
     this.drawBrushCursor(ctx, vp, map);
     this.drawNames(ctx, vp, map);

@@ -1,5 +1,6 @@
 import { inject, Injectable, signal } from '@angular/core';
 import { ClimateInput, ClimateResult } from '../domain/climate/climate-model';
+import { HydrologyResult } from '../domain/hydrology/rivers';
 import { WorldMap } from '../domain/map/world-map';
 import { toRowMajor } from '../domain/terrain/tiled-grid';
 import { MapStore } from './map-store';
@@ -25,9 +26,12 @@ export class ClimateService {
   private readonly store = inject(MapStore);
 
   private readonly currentResult = signal<ClimateResult | null>(null);
+  private readonly currentHydrology = signal<HydrologyResult | null>(null);
   private readonly currentStatus = signal<ClimateStatus>('idle');
   private readonly lastDuration = signal<number | null>(null);
   readonly result = this.currentResult.asReadonly();
+  /** Rivers, computed in the same run from the climate's runoff. */
+  readonly hydrology = this.currentHydrology.asReadonly();
   readonly status = this.currentStatus.asReadonly();
   readonly lastDurationMs = this.lastDuration.asReadonly();
 
@@ -42,6 +46,7 @@ export class ClimateService {
     this.clearTimer();
     this.rerunRequested = false;
     this.currentResult.set(null);
+    this.currentHydrology.set(null);
     this.currentStatus.set('idle');
   }
 
@@ -67,9 +72,10 @@ export class ClimateService {
     this.currentStatus.set('computing');
     const start = performance.now();
     try {
-      const result = await this.engine.compute(buildClimateInput(map));
+      const run = await this.engine.compute(buildClimateInput(map));
       if (generation === this.generation) {
-        this.currentResult.set(result);
+        this.currentResult.set(run.climate);
+        this.currentHydrology.set(run.hydrology);
         this.lastDuration.set(performance.now() - start);
         this.currentStatus.set(this.rerunRequested || this.timer !== null ? 'stale' : 'ready');
       }

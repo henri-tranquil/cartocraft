@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import { computeClimate } from '../../domain/climate/climate';
+import { computeClimateRun } from '../../domain/climate/climate-run';
 import { ClimateWorkerRequest, ClimateWorkerResponse } from './climate-protocol';
 
 /**
@@ -13,14 +13,30 @@ addEventListener('message', (event: MessageEvent<ClimateWorkerRequest>) => {
     case 'compute': {
       const start = performance.now();
       try {
-        const result = computeClimate(request.input);
+        const result = computeClimateRun(request.input);
+        const { climate, hydrology } = result;
+        const rivers = hydrology.rivers;
         const response: ClimateWorkerResponse = {
           kind: 'result',
           requestId: request.requestId,
           result,
           durationMs: performance.now() - start,
         };
-        postMessage(response, [result.temperatureDeciC.buffer, result.windUMs.buffer, result.windVMs.buffer, result.precipitationMm.buffer, result.wetnessPct.buffer, result.snowDepthCm.buffer]);
+        postMessage(response, [
+          climate.temperatureDeciC.buffer,
+          climate.windUMs.buffer,
+          climate.windVMs.buffer,
+          climate.precipitationMm.buffer,
+          climate.wetnessPct.buffer,
+          climate.snowDepthCm.buffer,
+          climate.runoffMm.buffer,
+          hydrology.dischargeM3s.buffer,
+          rivers.pointsCells.buffer,
+          rivers.dischargeM3s.buffer,
+          rivers.starts.buffer,
+          rivers.lineMaxDischargeM3s.buffer,
+          rivers.lineBounds.buffer,
+        ]);
       } catch (error) {
         const response: ClimateWorkerResponse = { kind: 'error', requestId: request.requestId, message: String(error) };
         postMessage(response);
