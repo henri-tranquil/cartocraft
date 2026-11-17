@@ -104,5 +104,6 @@ export function buildClimateInput(map: WorldMap): ClimateInput {
     axialTiltDeg: s.axialTiltDeg,
     seaLevelM: s.seaLevelM,
     globalTemperatureOffsetC: s.globalTemperatureOffsetC,
+    beyondEdges: s.beyondEdges,
   };
 }

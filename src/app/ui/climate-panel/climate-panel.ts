@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { DecimalPipe } from '@angular/common';
 import { ClimateStatus } from '../../application/climate';
 import { EditorFacade, MAX_TILT_DEG, ViewMode } from '../../application/editor-facade';
+import { BeyondEdge, BeyondEdges } from '../../domain/map/map-settings';
 import {
   temperatureLegendGradient,
   TEMPERATURE_PALETTE_MAX_C,
@@ -101,6 +102,32 @@ function monthOf(phase: number): number {
       }
     </section>
 
+    <section class="edges cc-panel" aria-label="Au-delà des bords">
+      <span class="slider-head" title="Le climat tient compte de ce qui entoure la carte, sur environ 800 km : un continent refroidit les hivers et chauffe les étés, un océan les adoucit.">
+        <cc-icon name="wind" [size]="13" [strokeWidth]="2.4" /> Au-delà des bords
+      </span>
+      @if (facade.settings()?.beyondEdges; as edges) {
+        <div class="edge-cross">
+          @for (side of edgeSides; track side.key) {
+            <select
+              class="cc-input"
+              [style.grid-area]="side.key"
+              [class.edge-ns]="side.key === 'north' || side.key === 'south'"
+              [attr.aria-label]="side.label"
+              [title]="side.label"
+              [value]="edges[side.key]"
+              (change)="setEdge(side.key, $event)"
+            >
+              @for (option of edgeOptions; track option.value) {
+                <option [value]="option.value" [selected]="edges[side.key] === option.value">{{ side.short }} · {{ option.label }}</option>
+              }
+            </select>
+          }
+          <span class="edge-map" aria-hidden="true">carte</span>
+        </div>
+      }
+    </section>
+
     <div class="season cc-panel">
       <label class="slider">
         <span class="slider-head"><cc-icon name="climate" [size]="13" [strokeWidth]="2.4" /> Saison <output>{{ monthName() }}</output></span>
@@ -153,6 +180,18 @@ function monthOf(phase: number): number {
     .pin-tag { flex: 1; }
     .pin-row .cc-input { width: 64px; }
     .lat-range { margin: 0; }
+    .edges { padding: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 11px; font-weight: 600; }
+    .edge-cross {
+      display: grid; gap: 4px; align-items: center;
+      grid-template-columns: 1fr 44px 1fr;
+      grid-template-areas: '. north .' 'west map east' '. south .';
+    }
+    .edge-cross select { font-size: 10px; padding: 2px; min-width: 0; }
+    .edge-cross .edge-ns { grid-column: 1 / -1; justify-self: center; width: 60%; }
+    .edge-map {
+      grid-area: map; height: 30px; display: grid; place-items: center; font-size: 9px;
+      border: var(--cc-border) solid var(--cc-ink); background: var(--cc-bg); color: var(--cc-muted);
+    }
     .presets { display: flex; justify-content: flex-end; }
     .presets .cc-btn { height: 24px; padding: 0 10px; --cc-shadow: 2px; }
     .season { padding: 10px; display: flex; flex-direction: column; gap: 4px; }
@@ -191,6 +230,23 @@ export class ClimatePanel {
   });
 
   protected readonly maxTilt = MAX_TILT_DEG;
+  protected readonly edgeSides: { key: keyof BeyondEdges; short: string; label: string }[] = [
+    { key: 'north', short: 'N', label: 'Au nord de la carte' },
+    { key: 'west', short: 'O', label: 'À l’ouest de la carte' },
+    { key: 'east', short: 'E', label: 'À l’est de la carte' },
+    { key: 'south', short: 'S', label: 'Au sud de la carte' },
+  ];
+  protected readonly edgeOptions: { value: BeyondEdge; label: string }[] = [
+    { value: 'continue', label: 'Prolonger' },
+    { value: 'ocean', label: 'Océan' },
+    { value: 'land', label: 'Continent' },
+  ];
+
+  protected setEdge(side: keyof BeyondEdges, event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    const option = this.edgeOptions.find((o) => o.value === value);
+    if (option) this.facade.setBeyondEdge(side, option.value);
+  }
 
   protected setTilt(event: Event): void {
     const value = this.numberValue(event);

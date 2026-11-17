@@ -1,3 +1,20 @@
+/**
+ * What lies beyond an edge of the map, for the climate (the air does not stop
+ * at the frame): 'continue' extends the edge's own terrain, 'ocean' and
+ * 'land' (a continent) override it.
+ */
+export type BeyondEdge = 'continue' | 'ocean' | 'land';
+export const BEYOND_EDGE_VALUES: readonly BeyondEdge[] = ['continue', 'ocean', 'land'];
+
+export interface BeyondEdges {
+  readonly north: BeyondEdge;
+  readonly south: BeyondEdge;
+  readonly east: BeyondEdge;
+  readonly west: BeyondEdge;
+}
+
+export const EDGES_CONTINUE: BeyondEdges = { north: 'continue', south: 'continue', east: 'continue', west: 'continue' };
+
 export interface MapSettings {
   readonly widthKm: number;
   readonly heightKm: number;
@@ -12,6 +29,7 @@ export interface MapSettings {
   readonly axialTiltDeg: number;
   readonly seaLevelM: number;
   readonly globalTemperatureOffsetC: number;
+  readonly beyondEdges: BeyondEdges;
 }
 
 /** Indicative upper bound; to be validated by a performance test in step 3. */
@@ -27,6 +45,7 @@ export const DEFAULT_MAP_SETTINGS: MapSettings = {
   axialTiltDeg: 23.4,
   seaLevelM: 0,
   globalTemperatureOffsetC: 0,
+  beyondEdges: EDGES_CONTINUE,
 };
 
 export function gridSizeCells(settings: MapSettings): { widthCells: number; heightCells: number } {
@@ -55,6 +74,10 @@ export function validateMapSettings(settings: MapSettings): string[] {
     errors.push('Les latitudes doivent être comprises entre -90° et 90°.');
   } else if (settings.latitudeTopDeg <= settings.latitudeBottomDeg) {
     errors.push('La latitude du haut doit être supérieure à celle du bas.');
+  }
+  const edges = settings.beyondEdges;
+  if (!edges || !(['north', 'south', 'east', 'west'] as const).every((side) => BEYOND_EDGE_VALUES.includes(edges[side]))) {
+    errors.push('Réglage « au-delà des bords » invalide.');
   }
   if (!(settings.axialTiltDeg >= 0 && settings.axialTiltDeg <= 90)) {
     errors.push("L'inclinaison de l'axe doit être comprise entre 0° et 90°.");

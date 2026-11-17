@@ -1,7 +1,7 @@
 import { Int16TiledGrid } from '../terrain/tiled-grid';
 import { MapSettings } from './map-settings';
 
-export const CURRENT_FORMAT_VERSION = 1;
+export const CURRENT_FORMAT_VERSION = 2;
 
 export interface TerrainData {
   /** Base altitude grid, in metres. High-res touch-up tiles come in step 8. */

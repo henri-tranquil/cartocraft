@@ -1,4 +1,4 @@
-import { MapSettings, validateMapSettings } from '../map/map-settings';
+import { BEYOND_EDGE_VALUES, BeyondEdge, MapSettings, validateMapSettings } from '../map/map-settings';
 import { CURRENT_FORMAT_VERSION, WorldMap } from '../map/world-map';
 import { DEFAULT_TILE_SIZE } from '../terrain/tiled-grid';
 import { int16GridFromBytes, int16GridToBytes } from './grid-codec';
@@ -72,7 +72,7 @@ export function mapFromDocument(
 
 // --- Validation (type guards: from `unknown` to trusted types) ---
 
-const SETTINGS_KEYS: readonly (keyof MapSettings)[] = [
+const SETTINGS_KEYS: readonly Exclude<keyof MapSettings, 'beyondEdges'>[] = [
   'widthKm',
   'heightKm',
   'baseCellKm',
@@ -91,8 +91,20 @@ function parseSettings(value: unknown): MapSettings {
       throw new MapFormatError(`Réglage invalide : ${key}.`);
     }
   }
+  const edges = value['beyondEdges'];
+  if (!isRecord(edges)) throw new MapFormatError('Réglage « au-delà des bords » absent.');
+  const side = (key: string): BeyondEdge => {
+    const v = edges[key];
+    if (typeof v !== 'string' || !(BEYOND_EDGE_VALUES as readonly string[]).includes(v)) {
+      throw new MapFormatError(`Réglage « au-delà des bords » invalide : ${key}.`);
+    }
+    return v as BeyondEdge;
+  };
   // Every key checked above is a finite number: the cast is now justified.
-  const settings = Object.fromEntries(SETTINGS_KEYS.map((k) => [k, value[k]])) as unknown as MapSettings;
+  const settings = {
+    ...(Object.fromEntries(SETTINGS_KEYS.map((k) => [k, value[k]])) as unknown as Omit<MapSettings, 'beyondEdges'>),
+    beyondEdges: { north: side('north'), south: side('south'), east: side('east'), west: side('west') },
+  };
   const errors = validateMapSettings(settings);
   if (errors.length > 0) throw new MapFormatError(errors.join(' '));
   return settings;

@@ -53,8 +53,8 @@ export function stabilityFromAnomaly(anomalyC: number): number {
 
 /** Wind (u east, v north, m/s) after deflection by a slope (m/km), for air of a given stability (0..1). */
 export function deflectWind(u: number, v: number, slopeEast: number, slopeNorth: number, stability = 1): { u: number; v: number } {
-  const steepness = Math.hypot(slopeEast, slopeNorth);
-  const speed = Math.hypot(u, v);
+  const steepness = Math.sqrt(slopeEast * slopeEast + slopeNorth * slopeNorth);
+  const speed = Math.sqrt(u * u + v * v);
   if (steepness < 1e-3 || speed < 1e-6) return { u, v };
   const nx = slopeEast / steepness;
   const ny = slopeNorth / steepness;
@@ -64,7 +64,7 @@ export function deflectWind(u: number, v: number, slopeEast: number, slopeNorth:
   let du = u - uphill * nx * blocked;
   let dv = v - uphill * ny * blocked;
   // Keep most of the speed: the air is redirected along the range, not stopped.
-  const kept = Math.hypot(du, dv);
+  const kept = Math.sqrt(du * du + dv * dv);
   const target = speed * (1 - DEFLECTION_SLOWDOWN * blocked);
   if (kept > 1e-6) {
     du *= target / kept;

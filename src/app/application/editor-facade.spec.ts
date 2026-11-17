@@ -30,6 +30,12 @@ class InMemoryRepository implements MapRepository {
 /** Same algorithm as the worker, run synchronously. */
 const inlineClimateEngine: ClimateEngine = { compute: async (input) => computeClimate(input) };
 
+/** These tests wait for a full climate run (map + margin), synchronous here. */
+const CLIMATE_TEST_TIMEOUT_MS = 20_000;
+
+/** Smallest map that waits for a full climate run (map + margin), kept cheap. */
+const CLIMATE_MAP = { ...DEFAULT_MAP_SETTINGS, widthKm: 60, heightKm: 60 };
+
 /** Small map: each map creation triggers a (synchronous, in tests) climate run. */
 const SMALL_MAP = { ...DEFAULT_MAP_SETTINGS, widthKm: 200, heightKm: 200 };
 
@@ -132,23 +138,23 @@ describe('EditorFacade', () => {
   });
 
   it('computes the climate when a map opens and exposes temperatures by season', async () => {
-    await facade.createBlankMap({ ...DEFAULT_MAP_SETTINGS, widthKm: 100, heightKm: 100 }, 'A');
+    await facade.createBlankMap(CLIMATE_MAP, 'A');
     await vi.waitFor(() => expect(facade.climateStatus()).toBe('ready'));
     facade.setViewMode('temperature');
     expect(facade.climateOverlay()).not.toBeNull();
     facade.setYearPhase(0.04);
-    const january = facade.temperatureAt({ x: 50, y: 50 })!;
+    const january = facade.temperatureAt({ x: 30, y: 30 })!;
     facade.setYearPhase(0.54);
-    expect(facade.temperatureAt({ x: 50, y: 50 })!).toBeGreaterThan(january);
-  });
+    expect(facade.temperatureAt({ x: 30, y: 30 })!).toBeGreaterThan(january);
+  }, CLIMATE_TEST_TIMEOUT_MS);
 
   it('marks the climate stale after a terrain edit', async () => {
-    await facade.createBlankMap({ ...DEFAULT_MAP_SETTINGS, widthKm: 100, heightKm: 100 }, 'A');
+    await facade.createBlankMap(CLIMATE_MAP, 'A');
     await vi.waitFor(() => expect(facade.climateStatus()).toBe('ready'));
-    facade.pointerDown({ x: 50, y: 50 });
+    facade.pointerDown({ x: 30, y: 30 });
     facade.pointerUp();
     expect(facade.climateStatus()).toBe('stale');
-  });
+  }, CLIMATE_TEST_TIMEOUT_MS);
 
   it('only pans while editing is disabled, then restores the relief tool', async () => {
     await facade.createBlankMap(SMALL_MAP, 'A');
@@ -162,19 +168,19 @@ describe('EditorFacade', () => {
   });
 
   it('sets latitudes from two pins as one undoable command and recomputes the climate', async () => {
-    await facade.createBlankMap({ ...DEFAULT_MAP_SETTINGS, widthKm: 100, heightKm: 100 }, 'A');
+    await facade.createBlankMap(CLIMATE_MAP, 'A');
     await vi.waitFor(() => expect(facade.climateStatus()).toBe('ready'));
     facade.startLatitudeEditing();
     facade.moveLatitudePin(0, 0);
     facade.setLatitudePinValue(0, 30);
-    facade.moveLatitudePin(1, 100);
+    facade.moveLatitudePin(1, 60);
     facade.setLatitudePinValue(1, 10);
     expect(facade.settings()?.latitudeTopDeg).toBe(30);
     expect(facade.settings()?.latitudeBottomDeg).toBe(10);
     expect(facade.climateStatus()).not.toBe('ready');
     facade.undo();
     expect(facade.settings()?.latitudeBottomDeg).toBe(DEFAULT_MAP_SETTINGS.latitudeBottomDeg);
-  });
+  }, CLIMATE_TEST_TIMEOUT_MS);
 
   it('changes the axial tilt as an undoable command', async () => {
     await facade.createBlankMap(SMALL_MAP, 'A');

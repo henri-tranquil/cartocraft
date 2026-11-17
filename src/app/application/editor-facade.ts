@@ -4,7 +4,7 @@ import { CommandHistory } from '../domain/commands/command-history';
 import { RenameMapCommand } from '../domain/commands/rename-map-command';
 import { MapFactory } from '../domain/map/map-factory';
 import { MapSummary } from '../domain/map/map-repository';
-import { MapSettings, validateMapSettings } from '../domain/map/map-settings';
+import { BeyondEdge, BeyondEdges, MapSettings, validateMapSettings } from '../domain/map/map-settings';
 import { LatitudePin, latitudeAtRow, latitudesFromPins } from '../domain/map/latitude';
 import { UpdateSettingsCommand } from '../domain/commands/update-settings-command';
 import { WorldMap } from '../domain/map/world-map';
@@ -355,8 +355,8 @@ export class EditorFacade {
 
   // --- Planet settings ---
 
-  /** Axial tilt and global temperature offset, as one undoable command (then the climate recomputes). */
-  updateClimateSettings(patch: Partial<Pick<MapSettings, 'axialTiltDeg' | 'globalTemperatureOffsetC'>>): void {
+  /** Axial tilt, global temperature offset, what lies beyond the edges: one undoable command (then the climate recomputes). */
+  updateClimateSettings(patch: Partial<Pick<MapSettings, 'axialTiltDeg' | 'globalTemperatureOffsetC' | 'beyondEdges'>>): void {
     const map = this.store.map();
     if (!map) return;
     const changed = (Object.keys(patch) as (keyof typeof patch)[]).some((k) => patch[k] !== undefined && patch[k] !== map.settings[k]);
@@ -367,8 +367,19 @@ export class EditorFacade {
       return;
     }
     this.errorState.set(null);
-    const label = patch.axialTiltDeg !== undefined ? 'Régler l’inclinaison de l’axe' : 'Régler la température globale';
+    const label =
+      patch.axialTiltDeg !== undefined
+        ? 'Régler l’inclinaison de l’axe'
+        : patch.beyondEdges !== undefined
+          ? 'Régler l’au-delà des bords'
+          : 'Régler la température globale';
     this.execute(new UpdateSettingsCommand(label, patch));
+  }
+
+  /** Sets what lies beyond one edge of the map. */
+  setBeyondEdge(side: keyof BeyondEdges, value: BeyondEdge): void {
+    const edges = this.store.map()?.settings.beyondEdges;
+    if (edges && edges[side] !== value) this.updateClimateSettings({ beyondEdges: { ...edges, [side]: value } });
   }
 
   // --- Tools ---

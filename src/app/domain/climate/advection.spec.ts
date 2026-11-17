@@ -1,4 +1,4 @@
-import { advect, coarseGridFor, upsampleAt, upsampleInto } from './advection';
+import { advect, upsampleAt, upsampleInto } from './advection';
 import { computeClimate } from './climate';
 import { ClimateInput, precipitationAtMm, temperatureAtC } from './climate-model';
 import { windAt } from './wind';
@@ -28,17 +28,11 @@ describe('advection', () => {
   });
 
   it('upsamples a whole field exactly like the per-cell version', () => {
-    const grid = coarseGridFor(50, 30, 1);
-    const g7 = { ...grid, width: 8, height: 5, factor: 7 };
+    const g7 = { width: 8, height: 5, factor: 7, cellKm: 7 };
     const coarse = Float32Array.from({ length: 40 }, (_, i) => (i * 7) % 11);
     const out = new Float32Array(50 * 30);
     upsampleInto(coarse, g7, 50, 30, out);
     for (const [x, y] of [[0, 0], [13, 4], [49, 29], [25, 17]]) expect(out[y * 50 + x]).toBeCloseTo(upsampleAt(coarse, g7, x, y), 4);
-  });
-
-  it('sizes the coarse grid to at most 256 cells per side', () => {
-    expect(coarseGridFor(1700, 1700, 1)).toEqual({ width: 243, height: 243, factor: 7, cellKm: 7 });
-    expect(coarseGridFor(100, 50, 1).factor).toBe(1);
   });
 
   it('makes a west coast under westerlies mild in winter, the interior colder', () => {
@@ -69,6 +63,31 @@ describe('monsoon', () => {
     const jul = winterMinusSummer(0.54);
     expect(jan.vMs).toBeLessThan(jul.vMs); // more southward in winter
     expect(jul.vMs).toBeGreaterThan(0); // drawn north toward the warm land in summer
+  });
+});
+
+describe('continentality and beyond the edges', () => {
+  /** 1000 × 1000 km at 55–45° N. */
+  function square(altitude: (x: number, y: number) => number): ClimateInput {
+    const n = 100;
+    const altitudeM = new Int16Array(n * n);
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) altitudeM[y * n + x] = altitude(x, y);
+    return { widthCells: n, heightCells: n, cellKm: 10, altitudeM, latitudeTopDeg: 55, latitudeBottomDeg: 45, axialTiltDeg: 23.4, seaLevelM: 0, globalTemperatureOffsetC: 0 };
+  }
+
+  it('makes a continent interior colder in winter than a small island at the same latitude', () => {
+    const centre = 50 * 100 + 50;
+    const continent = temperatureAtC(computeClimate(square(() => 100)), centre, JANUARY);
+    const island = temperatureAtC(computeClimate(square((x, y) => (Math.abs(x - 50) < 5 && Math.abs(y - 50) < 5 ? 100 : -2000))), centre, JANUARY);
+    expect(continent).toBeLessThan(island - 5);
+  });
+
+  it('cools a sea map in winter when a continent lies beyond its northern edge', () => {
+    const sea = square(() => -2000);
+    const coast = 5 * 100 + 50; // near the northern edge
+    const withOcean = temperatureAtC(computeClimate({ ...sea, beyondEdges: { north: 'ocean', south: 'ocean', east: 'ocean', west: 'ocean' } }), coast, JANUARY);
+    const withLand = temperatureAtC(computeClimate({ ...sea, beyondEdges: { north: 'land', south: 'ocean', east: 'ocean', west: 'ocean' } }), coast, JANUARY);
+    expect(withLand).toBeLessThan(withOcean - 1);
   });
 });
 

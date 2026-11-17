@@ -1,5 +1,5 @@
 import { CURRENT_FORMAT_VERSION } from '../map/world-map';
-import { MapFormatError, RawMapDocument, readFormatVersion } from './map-document';
+import { isRecord, MapFormatError, RawMapDocument, readFormatVersion } from './map-document';
 
 /**
  * Migration chain: each step upgrades a document from `fromVersion` to
@@ -12,8 +12,25 @@ export interface Migration {
   migrate(document: RawMapDocument): RawMapDocument;
 }
 
-/** Ordered list. Empty while we are at format v1. */
-export const MIGRATIONS: readonly Migration[] = [];
+/** v1 → v2: settings gain `beyondEdges`; old maps keep their behaviour ("continue" on every side). */
+const V1_TO_V2: Migration = {
+  fromVersion: 1,
+  migrate(document) {
+    const settings = document.header['settings'];
+    if (!isRecord(settings)) throw new MapFormatError('Réglages de carte absents.');
+    return {
+      ...document,
+      header: {
+        ...document.header,
+        formatVersion: 2,
+        settings: { ...settings, beyondEdges: { north: 'continue', south: 'continue', east: 'continue', west: 'continue' } },
+      },
+    };
+  },
+};
+
+/** Ordered list. */
+export const MIGRATIONS: readonly Migration[] = [V1_TO_V2];
 
 export function migrateToCurrent(
   document: RawMapDocument,

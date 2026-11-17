@@ -94,7 +94,7 @@ export function monsoonWinds(
       const north = -(smooth[Math.min(h - 1, y + 1) * w + x] - smooth[Math.max(0, y - 1) * w + x]) / (2 * cellKm);
       let gu = east * MONSOON_GAIN_MS_PER_C_PER_KM;
       let gv = north * MONSOON_GAIN_MS_PER_C_PER_KM;
-      const speed = Math.hypot(gu, gv);
+      const speed = Math.sqrt(gu * gu + gv * gv);
       if (speed > MONSOON_MAX_MS) {
         gu *= MONSOON_MAX_MS / speed;
         gv *= MONSOON_MAX_MS / speed;

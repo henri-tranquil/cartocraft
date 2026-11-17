@@ -33,13 +33,6 @@ export interface CoarseGrid {
   readonly cellKm: number;
 }
 
-export const MAX_COARSE_CELLS_PER_SIDE = 256;
-
-export function coarseGridFor(widthCells: number, heightCells: number, cellKm: number): CoarseGrid {
-  const factor = Math.max(1, Math.ceil(Math.max(widthCells, heightCells) / MAX_COARSE_CELLS_PER_SIDE));
-  return { width: Math.ceil(widthCells / factor), height: Math.ceil(heightCells / factor), factor, cellKm: cellKm * factor };
-}
-
 /** Mean of a fine field over each coarse cell. */
 export function downsampleMean(fine: ArrayLike<number>, fineW: number, fineH: number, grid: CoarseGrid): Float32Array {
   const sum = new Float32Array(grid.width * grid.height);
@@ -114,30 +107,79 @@ export function advect(
   blocking?: Blocking,
   source?: AdvectionSource,
 ): void {
+  // The wind does not change between sweeps: where each cell samples its
+  // upwind air (4 neighbours + weights) and how much memory it keeps for cold
+  // or warm air are computed once, then reused by every sweep.
+  const up = upwindSampler(step, w, h);
+  const size = w * h;
+  const keptCold = new Float32Array(size);
+  const keptWarm = new Float32Array(size);
+  for (let c = 0; c < size; c++) {
+    const mem = step.memory[c];
+    const climb = blocking ? blocking.climbM[c] : 0;
+    keptCold[c] = climb > 0 && blocking ? mem * Math.exp(-climb / blocking.coldDepthM) : mem;
+    keptWarm[c] = climb > 0 && blocking ? mem * Math.exp(-climb / blocking.warmDepthM) : mem;
+  }
+  const { i00, i01, i10, i11, fx, fy } = up;
   for (let sweep = 0; sweep < sweeps; sweep++) {
     const reverseX = sweep % 2 === 1;
     const reverseY = sweep % 4 >= 2;
     for (let j = 0; j < h; j++) {
       const y = reverseY ? h - 1 - j : j;
       for (let k = 0; k < w; k++) {
-        const x = reverseX ? w - 1 - k : k;
-        const c = y * w + x;
-        const mem = step.memory[c];
+        const c = y * w + (reverseX ? w - 1 - k : k);
         let value = eq[c];
-        if (mem > 0) {
-          const upwind = bilinear(field, w, h, x - step.dx[c], y - step.dy[c]);
-          let kept = mem;
-          const climb = blocking ? blocking.climbM[c] : 0;
-          if (climb > 0 && blocking) {
-            kept *= Math.exp(-climb / (upwind < eq[c] ? blocking.coldDepthM : blocking.warmDepthM));
-          }
-          value += (upwind - eq[c]) * kept;
+        if (step.memory[c] > 0) {
+          const top = field[i00[c]] + (field[i01[c]] - field[i00[c]]) * fx[c];
+          const bottom = field[i10[c]] + (field[i11[c]] - field[i10[c]]) * fx[c];
+          const upwind = top + (bottom - top) * fy[c];
+          value += (upwind - value) * (upwind < value ? keptCold[c] : keptWarm[c]);
         }
         if (source) value += source[c];
-        field[c] = limit ? Math.min(value, limit[c]) : value;
+        field[c] = limit && value > limit[c] ? limit[c] : value;
       }
     }
   }
+}
+
+/** Precomputed bilinear sampling of each cell's upwind point (one step back along the wind). */
+interface UpwindSampler {
+  readonly i00: Int32Array;
+  readonly i01: Int32Array;
+  readonly i10: Int32Array;
+  readonly i11: Int32Array;
+  readonly fx: Float32Array;
+  readonly fy: Float32Array;
+}
+
+function upwindSampler(step: AdvectionStep, w: number, h: number): UpwindSampler {
+  const size = w * h;
+  const s = {
+    i00: new Int32Array(size),
+    i01: new Int32Array(size),
+    i10: new Int32Array(size),
+    i11: new Int32Array(size),
+    fx: new Float32Array(size),
+    fy: new Float32Array(size),
+  };
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const c = y * w + x;
+      const gx = Math.min(w - 1, Math.max(0, x - step.dx[c]));
+      const gy = Math.min(h - 1, Math.max(0, y - step.dy[c]));
+      const x0 = Math.floor(gx);
+      const y0 = Math.floor(gy);
+      const x1 = Math.min(w - 1, x0 + 1);
+      const y1 = Math.min(h - 1, y0 + 1);
+      s.i00[c] = y0 * w + x0;
+      s.i01[c] = y0 * w + x1;
+      s.i10[c] = y1 * w + x0;
+      s.i11[c] = y1 * w + x1;
+      s.fx[c] = gx - x0;
+      s.fy[c] = gy - y0;
+    }
+  }
+  return s;
 }
 
 /**

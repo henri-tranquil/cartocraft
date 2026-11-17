@@ -4,7 +4,7 @@ import { getCell, setCell } from '../terrain/tiled-grid';
 import { decodeContainer, encodeContainer } from './container';
 import { int16GridFromBytes, int16GridToBytes } from './grid-codec';
 import { MapFormatError, RawMapDocument } from './map-document';
-import { Migration, migrateToCurrent } from './migrations';
+import { Migration, MIGRATIONS, migrateToCurrent } from './migrations';
 import { mapFromDocument, mapToDocument } from './map-serializer';
 
 function sampleMap() {
@@ -69,6 +69,11 @@ describe('migrations', () => {
   it('applies the chain in order up to the current version', () => {
     const migrated = migrateToCurrent(doc, [v2ToV3, v1ToV2], 3);
     expect(migrated.header).toEqual({ formatVersion: 3, added: true });
+  });
+
+  it('v1 → v2 adds "continue" on every edge', () => {
+    const migrated = migrateToCurrent({ header: { formatVersion: 1, settings: { seed: 1 } }, blocks: new Map() }, MIGRATIONS, 2);
+    expect(migrated.header['settings']).toEqual({ seed: 1, beyondEdges: { north: 'continue', south: 'continue', east: 'continue', west: 'continue' } });
   });
 
   it('refuses files newer than supported, or with a gap in the chain', () => {

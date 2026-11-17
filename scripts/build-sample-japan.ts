@@ -42,6 +42,9 @@ const settings: MapSettings = {
   axialTiltDeg: 23.44,
   seaLevelM: 0,
   globalTemperatureOffsetC: 0,
+  // Siberia / Manchuria lie north (cold winters, the winter monsoon); the Pacific east and south.
+  // West stays 'continue': that edge is half Korea / Primorye, half Yellow and East China seas.
+  beyondEdges: { north: 'land', south: 'ocean', east: 'ocean', west: 'continue' },
 };
 
 // --- Web-Mercator tile maths (the tiles' own projection) ---

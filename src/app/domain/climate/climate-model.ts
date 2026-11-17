@@ -1,3 +1,4 @@
+import { BeyondEdges } from '../map/map-settings';
 /**
  * Inputs and outputs of the climate computation. Plain data with TypedArrays
  * only, so it can cross the worker boundary (structured clone / transfer).
@@ -14,6 +15,8 @@ export interface ClimateInput {
   readonly axialTiltDeg: number;
   readonly seaLevelM: number;
   readonly globalTemperatureOffsetC: number;
+  /** What lies beyond each edge (default: the edge's terrain continues). */
+  readonly beyondEdges?: BeyondEdges;
 }
 
 /** We precompute 12 monthly snapshots; the season slider interpolates between them. */
