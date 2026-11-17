@@ -1,14 +1,14 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, OnInit, signal } from '@angular/core';
 import { EditorFacade } from '../../application/editor-facade';
 import { SaveStatus } from '../../application/auto-save';
-import { Icon, IconName } from '../icon/icon';
 import { ClimatePanel } from '../climate-panel/climate-panel';
+import { Icon, IconName } from '../icon/icon';
 import { MapCanvas } from '../map-canvas/map-canvas';
 import { MapList } from '../map-list/map-list';
 import { NewMapDialog, NewMapRequest } from '../new-map-dialog/new-map-dialog';
 import { ToolPanel, toolForKey } from '../tool-panel/tool-panel';
 
-type SectionId = 'maps' | 'relief' | 'climate' | 'water' | 'names';
+type SectionId = 'relief' | 'climate' | 'water' | 'names';
 
 interface SectionDef {
   readonly id: SectionId;
@@ -21,9 +21,8 @@ interface SectionDef {
 }
 
 const SECTIONS: readonly SectionDef[] = [
-  { id: 'maps', icon: 'maps', short: 'Cartes', label: 'Mes cartes', available: true },
-  { id: 'relief', icon: 'relief', short: 'Relief', label: 'Relief', available: true },
-  { id: 'climate', icon: 'climate', short: 'Climat', label: 'Climat : températures et saisons', available: true },
+  { id: 'relief', icon: 'relief', short: 'Relief', label: 'Relief : sculpter le terrain', available: true },
+  { id: 'climate', icon: 'climate', short: 'Climat', label: 'Climat : latitudes, températures, saisons', available: true },
   { id: 'water', icon: 'water', short: 'Eaux', label: 'Eaux — bientôt', available: false },
   { id: 'names', icon: 'names', short: 'Noms', label: 'Noms — bientôt', available: false },
 ];
@@ -36,6 +35,10 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
   error: 'Échec de l’enregistrement',
 };
 
+/**
+ * Layout, left to right: dark bar (saved maps as squares, new, import),
+ * section bar, tool panel (current-map actions at the bottom), then the map.
+ */
 @Component({
   selector: 'cc-editor-shell',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -44,77 +47,62 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
     '(window:keydown)': 'onKeydown($event)',
   },
   template: `
-    <nav class="sections" aria-label="Sections">
-      <div class="logo" title="Cartocraft"><cc-icon name="compass" [size]="20" /></div>
+    <nav class="maps" aria-label="Mes cartes">
+      <span class="logo" title="Cartocraft"><cc-icon name="compass" [size]="20" /></span>
+      <cc-map-list class="map-list" />
+      <button type="button" class="square-btn" aria-label="Nouvelle carte" title="Créer une nouvelle carte" (click)="newMapDialog.open()">
+        <cc-icon name="plus" [size]="18" [strokeWidth]="2.8" />
+      </button>
+      <label class="square-btn" title="Importer un fichier .cartocraft (crée une nouvelle carte)">
+        <cc-icon name="import" [size]="17" [strokeWidth]="2.4" />
+        <input type="file" class="visually-hidden" aria-label="Importer une carte" [accept]="facade.fileExtension" (change)="import($event)" />
+      </label>
+    </nav>
+
+    <nav class="actions" aria-label="Sections et actions">
       @for (section of sections; track section.id) {
         <button
           type="button"
-          class="cc-nav-btn shape-tampon"
-          [disabled]="!section.available || (section.id !== 'maps' && !facade.hasMap())"
-          [attr.aria-current]="activeSection() === section.id ? 'page' : null"
+          class="cc-btn shape-tampon act"
+          [disabled]="!section.available || !facade.hasMap()"
+          [attr.aria-pressed]="facade.hasMap() && activeSection() === section.id"
           [attr.aria-label]="section.label"
           [title]="section.label"
           (click)="activeSection.set(section.id)"
         >
-          <cc-icon [name]="section.icon" [size]="18" [strokeWidth]="2" />
-          <span>{{ section.short }}</span>
+          <cc-icon [name]="section.icon" [size]="17" [strokeWidth]="2" />
+          <span class="cc-caption">{{ section.short }}</span>
         </button>
       }
     </nav>
 
-    <aside class="panel">
-      @switch (activeSection()) {
-        @case ('maps') {
-          <cc-map-list />
+    @if (facade.hasMap()) {
+      <aside class="tools" [attr.aria-label]="activeLabel()">
+        <h2 class="heading"><cc-icon [name]="activeIcon()" [size]="14" [strokeWidth]="2.4" /> {{ activeShort() }}</h2>
+        @switch (activeSection()) {
+          @case ('relief') {
+            <cc-tool-panel />
+          }
+          @case ('climate') {
+            <cc-climate-panel />
+          }
         }
-        @case ('relief') {
-          <cc-tool-panel />
-        }
-        @case ('climate') {
-          <cc-climate-panel />
-        }
-      }
-
-      <div class="actions">
-        <div class="file-actions">
-          <button type="button" class="cc-btn shape-sceau" title="Créer une nouvelle carte" (click)="newMapDialog.open()">
-            <cc-icon name="plus" [size]="15" [strokeWidth]="2.6" />
-            <span class="cc-caption">Nouvelle</span>
-          </button>
-          <label class="cc-btn shape-sceau" title="Importer un fichier .cartocraft">
-            <cc-icon name="import" [size]="15" [strokeWidth]="2.4" />
-            <span class="cc-caption">Importer</span>
-            <input type="file" class="visually-hidden" aria-label="Importer une carte" [accept]="facade.fileExtension" (change)="import($event)" />
-          </label>
-          <button type="button" class="cc-btn shape-sceau" title="Exporter en fichier .cartocraft" [disabled]="!facade.hasMap()" (click)="export()">
+        <div class="map-actions">
+          <button type="button" class="cc-btn shape-sceau" title="Exporter la carte en fichier .cartocraft" (click)="export()">
             <cc-icon name="export" [size]="15" [strokeWidth]="2.4" />
             <span class="cc-caption">Exporter</span>
           </button>
-        </div>
-        <div class="history-actions">
-          <button
-            type="button"
-            class="cc-btn shape-sceau"
-            [title]="'Ctrl+Z' + (facade.undoLabel() ? ' — ' + facade.undoLabel() : '')"
-            [disabled]="!facade.undoLabel()"
-            (click)="facade.undo()"
-          >
-            <cc-icon name="undo" [size]="14" [strokeWidth]="2.4" />
-            <span class="cc-caption">Annuler</span>
+          <button type="button" class="cc-btn shape-sceau" title="Dupliquer la carte ouverte" (click)="duplicate()">
+            <cc-icon name="copy" [size]="15" [strokeWidth]="2.4" />
+            <span class="cc-caption">Copier</span>
           </button>
-          <button
-            type="button"
-            class="cc-btn shape-sceau"
-            [title]="'Ctrl+Y' + (facade.redoLabel() ? ' — ' + facade.redoLabel() : '')"
-            [disabled]="!facade.redoLabel()"
-            (click)="facade.redo()"
-          >
-            <cc-icon name="redo" [size]="14" [strokeWidth]="2.4" />
-            <span class="cc-caption">Rétablir</span>
+          <button type="button" class="cc-btn cc-btn--danger shape-sceau" title="Supprimer la carte ouverte" (click)="remove()">
+            <cc-icon name="trash" [size]="15" [strokeWidth]="2.4" />
+            <span class="cc-caption">Suppr.</span>
           </button>
         </div>
-      </div>
-    </aside>
+      </aside>
+    }
 
     <main class="main">
       @if (facade.error(); as error) {
@@ -135,6 +123,26 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
             (change)="rename($event)"
             (keydown.enter)="blur($event)"
           />
+          <button
+            type="button"
+            class="cc-btn shape-sceau history"
+            [title]="'Ctrl+Z' + (facade.undoLabel() ? ' — ' + facade.undoLabel() : '')"
+            [disabled]="!facade.undoLabel()"
+            (click)="facade.undo()"
+          >
+            <cc-icon name="undo" [size]="14" [strokeWidth]="2.4" />
+            <span class="cc-caption">Annuler</span>
+          </button>
+          <button
+            type="button"
+            class="cc-btn shape-sceau history"
+            [title]="'Ctrl+Y' + (facade.redoLabel() ? ' — ' + facade.redoLabel() : '')"
+            [disabled]="!facade.redoLabel()"
+            (click)="facade.redo()"
+          >
+            <cc-icon name="redo" [size]="14" [strokeWidth]="2.4" />
+            <span class="cc-caption">Rétablir</span>
+          </button>
           <span class="save" [class]="'save save--' + facade.saveStatus()" [title]="saveLabel()" role="status" [attr.aria-label]="saveLabel()"></span>
         </header>
         <div class="frame">
@@ -154,22 +162,31 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
   styles: `
     :host { display: flex; height: 100vh; }
 
-    .sections { width: 64px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px 0; background: var(--cc-side); }
-    .logo { width: 34px; height: 34px; margin-bottom: 6px; display: flex; align-items: center; justify-content: center; background: var(--cc-accent); color: var(--cc-ink); border: var(--cc-border) solid var(--cc-side-fg); }
+    .maps { width: 60px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 12px 0; background: var(--cc-side); overflow-y: auto; }
+    .logo { width: 40px; height: 40px; flex: none; display: flex; align-items: center; justify-content: center; background: var(--cc-ink); color: var(--cc-accent); border: var(--cc-border) solid var(--cc-side-fg); }
+    .map-list { padding-top: 10px; border-top: 1px dashed var(--cc-side-fg); }
 
-    .panel { width: 208px; flex: none; display: flex; flex-direction: column; gap: 14px; padding: 14px 12px; border-right: var(--cc-border-strong) solid var(--cc-ink); overflow: auto; }
-    .actions { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
-    .file-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-    .file-actions .cc-btn { flex-direction: column; gap: 4px; height: 46px; --cc-radius: 14px; --cc-shadow: 2px; }
-    .history-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-    .history-actions .cc-btn { height: 28px; --cc-shadow: 2px; }
+    .actions { width: 70px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 0; border-right: var(--cc-border-strong) solid var(--cc-ink); overflow-y: auto; }
+    .act { width: 52px; height: 46px; flex: none; flex-direction: column; gap: 3px; --cc-shadow: 2px; }
+    .square-btn {
+      width: 40px; height: 40px; flex: none; display: flex; align-items: center; justify-content: center; cursor: pointer;
+      background: transparent; color: var(--cc-side-fg); border: var(--cc-border) dashed var(--cc-side-fg);
+    }
+    .square-btn:hover { background: var(--cc-side-fg); color: var(--cc-side); border-style: solid; }
+    .square-btn:focus-within, .square-btn:focus-visible { outline: 2px solid var(--cc-accent); outline-offset: 2px; }
     .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 
+    .heading { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+    .map-actions { margin-top: auto; padding-top: 12px; border-top: var(--cc-border) solid var(--cc-ink); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+    .map-actions .cc-btn { height: 46px; flex-direction: column; gap: 4px; --cc-radius: 14px; --cc-shadow: 2px; }
+    .tools { width: 208px; flex: none; display: flex; flex-direction: column; gap: 14px; padding: 14px 12px; border-right: var(--cc-border-strong) solid var(--cc-ink); overflow: auto; }
+
     .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 12px 16px 16px; }
-    .title { display: flex; align-items: center; gap: 12px; border-bottom: var(--cc-border) solid var(--cc-ink); padding-bottom: 4px; }
+    .title { display: flex; align-items: center; gap: 8px; border-bottom: var(--cc-border) solid var(--cc-ink); padding-bottom: 6px; }
     .map-name { flex: 1; min-width: 0; border: 0; background: transparent; color: inherit; font-family: var(--cc-font-map); font-size: 26px; line-height: 1.15; letter-spacing: 0.5px; outline: none; }
     .map-name:focus-visible { background: var(--cc-panel); }
-    .save { width: 12px; height: 12px; border-radius: 50%; border: var(--cc-border) solid var(--cc-ink); background: var(--cc-panel); }
+    .history { height: 28px; padding: 0 10px; --cc-shadow: 2px; }
+    .save { width: 12px; height: 12px; margin-left: 6px; border-radius: 50%; border: var(--cc-border) solid var(--cc-ink); background: var(--cc-panel); }
     .save--saved { background: var(--cc-ok); }
     .save--pending, .save--saving { background: var(--cc-accent); }
     .save--error { background: var(--cc-danger); }
@@ -180,24 +197,26 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
     .error { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.4rem 0.6rem; background: var(--cc-danger); color: var(--cc-panel); font-weight: 600; }
     .dismiss { width: 26px; height: 26px; --cc-shadow: 2px; }
     .empty { flex: 1; display: flex; align-items: center; justify-content: center; }
+
   `,
 })
 export class EditorShell implements OnInit {
   protected readonly facade = inject(EditorFacade);
   protected readonly sections = SECTIONS;
-  protected readonly activeSection = signal<SectionId>('maps');
+  protected readonly activeSection = signal<SectionId>('relief');
+  private readonly active = computed(() => SECTIONS.find((s) => s.id === this.activeSection()) ?? SECTIONS[0]);
+  protected readonly activeLabel = computed(() => this.active().label);
+  protected readonly activeIcon = computed(() => this.active().icon);
+  protected readonly activeShort = computed(() => this.active().short);
   protected readonly saveLabel = computed(() => SAVE_STATUS_LABELS[this.facade.saveStatus()]);
 
   constructor() {
-    // Opening a map jumps to the relief tools; closing the last one returns to the list.
-    let previousId: string | null = null;
-    effect(() => {
-      const id = this.facade.currentMapId();
-      if (id !== previousId) this.activeSection.set(id ? 'relief' : 'maps');
-      previousId = id;
-    });
     // Only the Relief panel edits the terrain; elsewhere a click just moves the map.
     effect(() => this.facade.setEditingEnabled(this.activeSection() === 'relief'));
+    // The latitude ruler belongs to the Climate panel: leaving it closes the ruler.
+    effect(() => {
+      if (this.activeSection() !== 'climate') this.facade.stopLatitudeEditing();
+    });
   }
 
   ngOnInit(): void {
@@ -224,6 +243,16 @@ export class EditorShell implements OnInit {
     link.download = exported.fileName;
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  protected duplicate(): void {
+    const id = this.facade.currentMapId();
+    if (id) void this.facade.duplicateMap(id);
+  }
+
+  protected remove(): void {
+    const id = this.facade.currentMapId();
+    if (id && confirm(`Supprimer définitivement « ${this.facade.mapName()} » ?`)) void this.facade.deleteMap(id);
   }
 
   protected rename(event: Event): void {

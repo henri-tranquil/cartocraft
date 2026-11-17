@@ -18,6 +18,7 @@ import { CellPoint } from '../../domain/terrain/brushes';
 import { TerrainRaster } from '../../rendering/terrain-raster';
 import { cellToScreen, fitViewport, panBy, resize, screenToCell, Viewport, zoomAt, zoomLimits } from '../../rendering/viewport';
 import { loadView, saveView } from './view-memory';
+import { drawLatitudeOverlay, PIN_HIT_TOLERANCE_PX, pinScreenY } from '../../rendering/latitude-overlay';
 
 const WHEEL_ZOOM_SPEED = 0.0015;
 const VIEW_SAVE_DEBOUNCE_MS = 400;
@@ -36,7 +37,7 @@ const BACKGROUND = '#e2cfa6';
       (pointermove)="onPointerMove($event)"
       (pointerup)="onPointerUp($event)"
       (pointercancel)="onPointerUp($event)"
-      (pointerleave)="hover.set(null)"
+      (pointerleave)="hover.set(null); hoveredPin.set(null)"
       (wheel)="onWheel($event)"
       (contextmenu)="$event.preventDefault()"
     ></canvas>
@@ -80,8 +81,13 @@ export class MapCanvas {
   private frameRequest: number | null = null;
   private panning: { pointerId: number; lastX: number; lastY: number } | null = null;
   private viewSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Latitude pin being dragged, or hovered (for the highlight and the cursor). */
+  private pinDrag: { pointerId: number; index: 0 | 1 } | null = null;
+  protected readonly hoveredPin = signal<0 | 1 | null>(null);
 
-  protected readonly cursor = computed(() => (this.facade.effectiveTool() === 'pan' ? 'grab' : 'crosshair'));
+  protected readonly cursor = computed(() =>
+    this.hoveredPin() !== null ? 'ns-resize' : this.facade.effectiveTool() === 'pan' ? 'grab' : 'crosshair',
+  );
 
   protected readonly hoverInfo = computed(() => {
     this.facade.renderRevision(); // altitude changes while painting
@@ -112,6 +118,9 @@ export class MapCanvas {
       this.facade.brush();
       this.facade.effectiveTool();
       this.facade.climateOverlay();
+      this.facade.latitudePins();
+      this.facade.displayedLatitudes();
+      this.hoveredPin();
       this.requestDraw();
     });
 
@@ -142,6 +151,11 @@ export class MapCanvas {
     const vp = this.viewport();
     if (!vp) return;
     this.canvasRef().nativeElement.setPointerCapture(event.pointerId);
+    const pin = event.button === 0 ? this.pinAt(vp, event.offsetY) : null;
+    if (pin !== null) {
+      this.pinDrag = { pointerId: event.pointerId, index: pin };
+      return;
+    }
     // Middle or right button always pans; left button uses the active tool.
     if (event.button !== 0 || this.facade.effectiveTool() === 'pan') {
       this.panning = { pointerId: event.pointerId, lastX: event.offsetX, lastY: event.offsetY };
@@ -153,6 +167,11 @@ export class MapCanvas {
   protected onPointerMove(event: PointerEvent): void {
     const vp = this.viewport();
     if (!vp) return;
+    if (this.pinDrag?.pointerId === event.pointerId) {
+      this.facade.moveLatitudePin(this.pinDrag.index, screenToCell(vp, event.offsetX, event.offsetY).y);
+      return;
+    }
+    if (!this.panning) this.hoveredPin.set(this.pinAt(vp, event.offsetY));
     if (this.panning?.pointerId === event.pointerId) {
       this.viewport.set(panBy(vp, event.offsetX - this.panning.lastX, event.offsetY - this.panning.lastY));
       this.panning = { ...this.panning, lastX: event.offsetX, lastY: event.offsetY };
@@ -164,6 +183,11 @@ export class MapCanvas {
   }
 
   protected onPointerUp(event: PointerEvent): void {
+    if (this.pinDrag?.pointerId === event.pointerId) {
+      this.pinDrag = null;
+      this.facade.commitLatitudes();
+      return;
+    }
     if (this.panning?.pointerId === event.pointerId) {
       this.panning = null;
       return;
@@ -230,6 +254,30 @@ export class MapCanvas {
     this.raster.update(dirty);
     this.raster.draw(ctx, vp);
     this.drawBrushCursor(ctx, vp, map);
+
+    const pins = this.facade.latitudePins();
+    const edges = this.facade.displayedLatitudes();
+    if (pins && edges) {
+      const grid = map.terrain.baseAltitudeM;
+      drawLatitudeOverlay(ctx, vp, {
+        ...edges,
+        axialTiltDeg: map.settings.axialTiltDeg,
+        widthCells: grid.widthCells,
+        heightCells: grid.heightCells,
+        pins,
+        activePin: this.pinDrag?.index ?? this.hoveredPin(),
+      });
+    }
+  }
+
+  /** Which latitude pin (if any) is within reach of screen row `sy`. */
+  private pinAt(vp: Viewport, sy: number): 0 | 1 | null {
+    const pins = this.facade.latitudePins();
+    if (!pins) return null;
+    const d0 = Math.abs(pinScreenY(vp, pins[0]) - sy);
+    const d1 = Math.abs(pinScreenY(vp, pins[1]) - sy);
+    if (Math.min(d0, d1) > PIN_HIT_TOLERANCE_PX) return null;
+    return d0 <= d1 ? 0 : 1;
   }
 
   protected fitToMap(): void {

@@ -4,7 +4,9 @@ import { CommandHistory } from '../domain/commands/command-history';
 import { RenameMapCommand } from '../domain/commands/rename-map-command';
 import { MapFactory } from '../domain/map/map-factory';
 import { MapSummary } from '../domain/map/map-repository';
-import { MapSettings } from '../domain/map/map-settings';
+import { MapSettings, validateMapSettings } from '../domain/map/map-settings';
+import { LatitudePin, latitudeAtRow, latitudesFromPins } from '../domain/map/latitude';
+import { UpdateSettingsCommand } from '../domain/commands/update-settings-command';
 import { WorldMap } from '../domain/map/world-map';
 import { MapFormatError } from '../domain/serialization/map-document';
 import { CellPoint } from '../domain/terrain/brushes';
@@ -71,6 +73,8 @@ export class EditorFacade {
   private readonly activeToolState = signal<ToolId>('raise');
   /** False while a non-editing panel (maps, climate) is shown: the map can only be panned. */
   private readonly editingEnabledState = signal(true);
+  /** Two pins while the latitude ruler is being set up; null otherwise. */
+  private readonly latitudePinsState = signal<readonly [LatitudePin, LatitudePin] | null>(null);
   private readonly tools: Record<Exclude<ToolId, 'pan'>, EditorTool> = {
     raise: new RaiseTerrainTool(() => this.brushState()),
     lower: new LowerTerrainTool(() => this.brushState()),
@@ -88,6 +92,20 @@ export class EditorFacade {
   readonly error = this.errorState.asReadonly();
   readonly fileExtension = this.fileCodec.fileExtension;
   readonly activeTool = this.activeToolState.asReadonly();
+  readonly latitudePins = this.latitudePinsState.asReadonly();
+  readonly settings = computed(() => {
+    this.store.revision();
+    return this.store.map()?.settings ?? null;
+  });
+  /** Edges implied by the pins being dragged (preview), else the map's own. */
+  readonly displayedLatitudes = computed(() => {
+    const map = this.store.map();
+    const settings = this.settings();
+    if (!map || !settings) return null;
+    const pins = this.latitudePinsState();
+    const fromPins = pins ? latitudesFromPins(pins[0], pins[1], map.terrain.baseAltitudeM.heightCells) : null;
+    return fromPins ?? { latitudeTopDeg: settings.latitudeTopDeg, latitudeBottomDeg: settings.latitudeBottomDeg };
+  });
   /** The tool that actually handles the pointer: 'pan' whenever editing is disabled. */
   readonly effectiveTool = computed<ToolId>(() => (this.editingEnabledState() ? this.activeToolState() : 'pan'));
   readonly brush = this.brushState.asReadonly();
@@ -223,6 +241,60 @@ export class EditorFacade {
     this.yearPhaseState.set(((phase % 1) + 1) % 1);
   }
 
+  // --- Latitudes ---
+
+  /** Shows the ruler with two pins at 1/4 and 3/4 of the height, at their current latitudes. */
+  startLatitudeEditing(): void {
+    const map = this.store.map();
+    if (!map) return;
+    const h = map.terrain.baseAltitudeM.heightCells;
+    const pin = (y: number): LatitudePin => ({ yCell: y, latitudeDeg: round1(latitudeAtRow(map.settings, h, y)) });
+    this.latitudePinsState.set([pin(h * 0.25), pin(h * 0.75)]);
+  }
+
+  stopLatitudeEditing(): void {
+    this.latitudePinsState.set(null);
+  }
+
+  /** Live drag: moves the pin (preview only, no command yet). */
+  moveLatitudePin(index: 0 | 1, yCell: number): void {
+    const pins = this.latitudePinsState();
+    const map = this.store.map();
+    if (!pins || !map) return;
+    const h = map.terrain.baseAltitudeM.heightCells;
+    this.latitudePinsState.set(replacePin(pins, index, { ...pins[index], yCell: clamp(yCell, 0, h) }));
+  }
+
+  setLatitudePinValue(index: 0 | 1, latitudeDeg: number): void {
+    const pins = this.latitudePinsState();
+    if (!pins || !Number.isFinite(latitudeDeg)) return;
+    this.latitudePinsState.set(replacePin(pins, index, { ...pins[index], latitudeDeg }));
+    this.commitLatitudes();
+  }
+
+  /** Applies the pins to the map settings as one undoable command (then the climate recomputes). */
+  commitLatitudes(): void {
+    const pins = this.latitudePinsState();
+    const map = this.store.map();
+    if (!pins || !map) return;
+    const edges = latitudesFromPins(pins[0], pins[1], map.terrain.baseAltitudeM.heightCells);
+    if (!edges) {
+      this.errorState.set('Les deux repères doivent être sur des lignes différentes.');
+      return;
+    }
+    const patch = { latitudeTopDeg: round2(edges.latitudeTopDeg), latitudeBottomDeg: round2(edges.latitudeBottomDeg) };
+    if (patch.latitudeTopDeg === map.settings.latitudeTopDeg && patch.latitudeBottomDeg === map.settings.latitudeBottomDeg) return;
+    const errors = validateMapSettings({ ...map.settings, ...patch });
+    if (errors.length > 0) {
+      // Keep the pins as typed: with two pins, intermediate states are often
+      // invalid; the change applies as soon as the pair becomes valid.
+      this.errorState.set(errors.join(' '));
+      return;
+    }
+    this.errorState.set(null);
+    this.execute(new UpdateSettingsCommand('Régler les latitudes', patch));
+  }
+
   // --- Tools ---
 
   selectTool(id: ToolId): void {
@@ -309,11 +381,25 @@ export class EditorFacade {
     this.store.applyChange(change);
     this.autoSave.markChanged(change.terrainTiles, change.metadata);
     if (change.terrainTiles.length > 0) this.climate.invalidate();
+    if (change.settings) {
+      this.climate.invalidate(0);
+      if (this.latitudePinsState()) this.refreshPinsFromSettings();
+    }
     this.historyRevision.update((r) => r + 1);
     if (change.metadata) void this.refreshList();
   }
 
   // --- Helpers ---
+
+  /** After undo/redo: keep the pins' rows, re-read their latitudes from the settings. */
+  private refreshPinsFromSettings(): void {
+    const pins = this.latitudePinsState();
+    const map = this.store.map();
+    if (!pins || !map) return;
+    const h = map.terrain.baseAltitudeM.heightCells;
+    const at = (p: LatitudePin): LatitudePin => ({ ...p, latitudeDeg: round1(latitudeAtRow(map.settings, h, p.yCell)) });
+    this.latitudePinsState.set([at(pins[0]), at(pins[1])]);
+  }
 
   private toolContext(): ToolContext | null {
     const map = this.store.map();
@@ -325,6 +411,7 @@ export class EditorFacade {
     this.history.clear();
     this.historyRevision.update((r) => r + 1);
     this.store.setMap(map);
+    this.latitudePinsState.set(null);
     this.climate.reset();
     this.climate.invalidate(0);
   }
@@ -353,4 +440,20 @@ export class EditorFacade {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function round1(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function replacePin(
+  pins: readonly [LatitudePin, LatitudePin],
+  index: 0 | 1,
+  pin: LatitudePin,
+): readonly [LatitudePin, LatitudePin] {
+  return index === 0 ? [pin, pins[1]] : [pins[0], pin];
 }

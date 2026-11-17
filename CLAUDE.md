@@ -195,7 +195,8 @@ Style **néo-brutalisme sur parchemin**, palette « C1 Encre & ocre » (maquette
 
 - Traits d'encre épais (3–4 px), ombres pleines décalées, aplats ; un bouton actif « s'enfonce » (perd son ombre).
 - **Peu de texte, des pictos, mais la compréhension d'abord** : chaque bouton porte un picto (`ui/icon/icon.ts`, SVG inline en `currentColor`) **et une légende courte** (`.cc-caption`, 1 mot). Seules exceptions : les symboles universels dans un espace très réduit (dupliquer, supprimer), qui gardent `aria-label` + bulle. Les bulles (`title`) donnent le détail et le raccourci clavier.
-- Mise en page « carnet » : barre de sections sombre à gauche (Cartes, Relief, puis Climat/Eaux/Noms à leur étape), panneau d'outils, carte encadrée.
+- Mise en page : barre sombre au bord gauche = **cartes enregistrées en petits carrés** (initiales, bulle = nom/taille/date) suivies de « + » (nouvelle) et Importer ; à côté, la barre des sections (Relief/Climat/Eaux/Noms) ; puis le panneau d'outils de la section, avec en bas, sous un séparateur, les actions sur la carte ouverte (Exporter, Copier, Supprimer en rouge) ; la carte encadrée prend le reste. Seule la section Relief modifie le terrain ; ailleurs, le clic déplace la carte.
+- Latitudes : réglées par **deux repères** glissés sur la carte (règle graduée + équateur, tropiques, cercles polaires affichés pendant le réglage) ; une commande annulable `UpdateSettingsCommand`.
 - Jetons et classes globales dans `src/styles.scss` (`--cc-*`, `.cc-btn`, `.cc-nav-btn`, `.cc-panel`). Pas de couleur en dur dans les composants.
 - **Forme des boutons = signature de la famille d'outils** : `shape-tampon` (sections, Relief), `shape-sceau` (actions fichier, annuler, Eaux), `shape-galet` (Climat), `shape-feuille` (Noms).
 - Polices : Space Grotesk (UI), IM Fell English SC (noms de lieux, titres).

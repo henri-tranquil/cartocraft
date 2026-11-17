@@ -107,6 +107,11 @@ body {
   padding: 0.4rem 0.9rem;
 }
 
+.cc-btn--danger {
+  background: var(--cc-danger);
+  color: var(--cc-panel);
+}
+
 .cc-btn--text {
   padding: 0.4rem 0.9rem;
 }

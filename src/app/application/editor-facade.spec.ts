@@ -158,6 +158,29 @@ describe('EditorFacade', () => {
     expect(facade.effectiveTool()).toBe('raise');
   });
 
+  it('sets latitudes from two pins as one undoable command and recomputes the climate', async () => {
+    await facade.createBlankMap({ ...DEFAULT_MAP_SETTINGS, widthKm: 100, heightKm: 100 }, 'A');
+    await vi.waitFor(() => expect(facade.climateStatus()).toBe('ready'));
+    facade.startLatitudeEditing();
+    facade.moveLatitudePin(0, 0);
+    facade.setLatitudePinValue(0, 30);
+    facade.moveLatitudePin(1, 100);
+    facade.setLatitudePinValue(1, 10);
+    expect(facade.settings()?.latitudeTopDeg).toBe(30);
+    expect(facade.settings()?.latitudeBottomDeg).toBe(10);
+    expect(facade.climateStatus()).not.toBe('ready');
+    facade.undo();
+    expect(facade.settings()?.latitudeBottomDeg).toBe(DEFAULT_MAP_SETTINGS.latitudeBottomDeg);
+  });
+
+  it('refuses pins that would put the south at the top', async () => {
+    await facade.createBlankMap(DEFAULT_MAP_SETTINGS, 'A');
+    facade.startLatitudeEditing();
+    facade.setLatitudePinValue(0, -10);
+    expect(facade.error()).toContain('latitude du haut');
+    expect(facade.settings()?.latitudeTopDeg).toBe(DEFAULT_MAP_SETTINGS.latitudeTopDeg);
+  });
+
   it('reports import errors without touching the open map', async () => {
     await facade.createBlankMap(DEFAULT_MAP_SETTINGS, 'A');
     await facade.importMapFile(new Blob(['junk']));

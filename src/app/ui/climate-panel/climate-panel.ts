@@ -8,6 +8,7 @@ import {
   TEMPERATURE_PALETTE_MIN_C,
 } from '../../rendering/style/temperature-palette';
 import { Icon, IconName } from '../icon/icon';
+import { formatLatitude } from '../../domain/map/latitude';
 
 const MONTH_NAMES = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 
@@ -50,6 +51,41 @@ function monthOf(phase: number): number {
       }
     </div>
 
+    <section class="lat cc-panel" aria-label="Latitudes">
+      <div class="lat-head">
+        <span class="slider-head"><cc-icon name="compass" [size]="13" [strokeWidth]="2.4" /> Latitudes</span>
+        <button
+          type="button"
+          class="cc-btn shape-galet ruler-btn"
+          [attr.aria-pressed]="!!facade.latitudePins()"
+          title="Afficher l’échelle graduée et placer deux repères sur la carte"
+          (click)="toggleRuler()"
+        >
+          <span class="cc-caption">{{ facade.latitudePins() ? 'Fermer' : 'Régler' }}</span>
+        </button>
+      </div>
+      @if (facade.latitudePins(); as pins) {
+        <p class="hint">Glisse les deux lignes sur la carte, puis donne leur latitude (négatif = sud).</p>
+        @for (pin of pins; track $index) {
+          <label class="pin-row">
+            <span class="pin-tag">Repère {{ $index + 1 }}</span>
+            <input
+              class="cc-input"
+              type="number"
+              step="0.1"
+              min="-90"
+              max="90"
+              [value]="pin.latitudeDeg"
+              (change)="setPin($index, $event)"
+            />
+            <span>°</span>
+          </label>
+        }
+      } @else if (latitudes(); as lat) {
+        <p class="lat-range">{{ lat.top }} <span class="muted">en haut</span> → {{ lat.bottom }} <span class="muted">en bas</span></p>
+      }
+    </section>
+
     <div class="season cc-panel">
       <label class="slider">
         <span class="slider-head"><cc-icon name="climate" [size]="13" [strokeWidth]="2.4" /> Saison <output>{{ monthName() }}</output></span>
@@ -85,6 +121,14 @@ function monthOf(phase: number): number {
     :host { display: flex; flex-direction: column; gap: 14px; }
     .views { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
     .views .cc-btn { height: 56px; flex-direction: column; gap: 5px; }
+    .lat { padding: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 11px; font-weight: 600; }
+    .lat-head { display: flex; align-items: center; justify-content: space-between; }
+    .ruler-btn { height: 24px; padding: 0 10px; --cc-shadow: 2px; }
+    .hint { margin: 0; font-weight: 500; color: var(--cc-muted); }
+    .pin-row { display: flex; align-items: center; gap: 6px; }
+    .pin-tag { flex: 1; }
+    .pin-row .cc-input { width: 64px; }
+    .lat-range { margin: 0; }
     .season { padding: 10px; display: flex; flex-direction: column; gap: 4px; }
     .slider { display: flex; flex-direction: column; gap: 2px; font-size: 11px; font-weight: 600; }
     .slider-head { display: flex; align-items: center; gap: 5px; }
@@ -113,6 +157,20 @@ export class ClimatePanel {
   protected readonly maxC = TEMPERATURE_PALETTE_MAX_C;
   protected readonly monthName = computed(() => MONTH_NAMES[monthOf(this.facade.yearPhase())]);
   protected readonly statusLabel = computed(() => STATUS_LABELS[this.facade.climateStatus()]);
+
+  protected readonly latitudes = computed(() => {
+    const s = this.facade.settings();
+    return s ? { top: formatLatitude(s.latitudeTopDeg, 1), bottom: formatLatitude(s.latitudeBottomDeg, 1) } : null;
+  });
+
+  protected toggleRuler(): void {
+    if (this.facade.latitudePins()) this.facade.stopLatitudeEditing();
+    else this.facade.startLatitudeEditing();
+  }
+
+  protected setPin(index: number, event: Event): void {
+    if (index === 0 || index === 1) this.facade.setLatitudePinValue(index, this.numberValue(event));
+  }
 
   protected numberValue(event: Event): number {
     return event.target instanceof HTMLInputElement ? event.target.valueAsNumber : 0;

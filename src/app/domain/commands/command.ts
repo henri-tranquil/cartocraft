@@ -7,6 +7,8 @@ import { WorldMap } from '../map/world-map';
 export interface MapChange {
   readonly terrainTiles: readonly number[];
   readonly metadata: boolean;
+  /** Map settings (latitudes, tilt…) changed: derived data like the climate must be recomputed. */
+  readonly settings?: boolean;
 }
 
 export const NO_CHANGE: MapChange = { terrainTiles: [], metadata: false };

@@ -10,6 +10,6 @@ describe('App', () => {
     await fixture.whenStable();
     const el = fixture.nativeElement as HTMLElement;
     expect(el.textContent).toContain('Aucune carte enregistrée');
-    expect(el.querySelector('nav[aria-label="Sections"]')).not.toBeNull();
+    expect(el.querySelector('nav[aria-label="Sections et actions"]')).not.toBeNull();
   });
 });

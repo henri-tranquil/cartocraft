@@ -20,7 +20,8 @@ export interface WorldMap {
   readonly id: string;
   name: string;
   readonly formatVersion: number;
-  readonly settings: MapSettings;
+  /** Mutable: replaced as a whole by UpdateSettingsCommand. */
+  settings: MapSettings;
   readonly terrain: TerrainData;
   readonly createdAt: string;
   updatedAt: string;
