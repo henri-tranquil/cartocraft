@@ -4,7 +4,17 @@ import { Command, MapChange } from '../domain/commands/command';
 import { CommandHistory } from '../domain/commands/command-history';
 import { RenameMapCommand } from '../domain/commands/rename-map-command';
 import { FeatureEditCommand } from '../domain/commands/feature-edit-command';
-import { createFeature, FeatureTemplate, ImportanceRank, MapFeature, MAX_FEATURE_NAME_LENGTH } from '../domain/features/map-feature';
+import {
+  createFeature,
+  FeatureTemplate,
+  ImportanceRank,
+  isZoneTemplate,
+  MapFeature,
+  MAX_FEATURE_NAME_LENGTH,
+  MAX_OUTLINE_POINTS,
+  MIN_OUTLINE_POINTS,
+} from '../domain/features/map-feature';
+import { poleOfInaccessibility, ringArea, translateRing } from '../domain/features/polygon';
 import { MapFactory } from '../domain/map/map-factory';
 import { MapSummary } from '../domain/map/map-repository';
 import { BeyondEdge, BeyondEdges, gridSizeCells, MapSettings, validateMapSettings } from '../domain/map/map-settings';
@@ -516,10 +526,30 @@ export class EditorFacade {
   /** New place of the current template at `point`, selected so that its name can be typed right away. */
   addFeatureAt(point: CellPoint): void {
     const map = this.store.map();
-    if (!map || !this.namesEditingState() || !isInside(map.terrain.baseAltitudeM, Math.floor(point.x), Math.floor(point.y))) return;
+    if (!map || !this.namesEditingState() || isZoneTemplate(this.newPlaceTemplateState()) || !isInside(map.terrain.baseAltitudeM, Math.floor(point.x), Math.floor(point.y))) return;
     const km = map.settings.baseCellKm;
     const feature = createFeature(this.newPlaceTemplateState(), crypto.randomUUID(), '', round2(point.x * km), round2(point.y * km));
     this.execute(new FeatureEditCommand('Ajouter un lieu', null, feature));
+    this.selectedFeatureIdState.set(feature.id);
+  }
+
+  /**
+   * New zone of the current (zone) template from a lasso outline in cell
+   * coordinates (flat [x0, y0, …], already simplified by the canvas).
+   * Too small or degenerate outlines are ignored.
+   */
+  addZone(outlineCells: readonly number[]): void {
+    const map = this.store.map();
+    const template = this.newPlaceTemplateState();
+    const points = outlineCells.length / 2;
+    if (!map || !this.namesEditingState() || !isZoneTemplate(template)) return;
+    if (points < MIN_OUTLINE_POINTS || points > MAX_OUTLINE_POINTS) return;
+    const km = map.settings.baseCellKm;
+    const outlineKm = outlineCells.map((v) => round2(v * km));
+    if (ringArea(outlineKm) < MIN_ZONE_AREA_CELLS * km * km) return;
+    const pole = poleOfInaccessibility(outlineKm, km / 4);
+    const feature = createFeature(template, crypto.randomUUID(), '', round2(pole.x), round2(pole.y), outlineKm);
+    this.execute(new FeatureEditCommand('Dessiner une zone', null, feature));
     this.selectedFeatureIdState.set(feature.id);
   }
 
@@ -534,11 +564,19 @@ export class EditorFacade {
 
   /** Changes the type; the importance follows the new type's default. */
   setFeatureTemplate(id: string, template: FeatureTemplate): void {
-    this.replaceFeature(id, 'Changer le type d’un lieu', (f) => createFeature(template, f.id, f.name, f.xKm, f.yKm));
+    this.replaceFeature(id, 'Changer le type d’un lieu', (f) =>
+      isZoneTemplate(template) !== (f.kind === 'region') ? f : createFeature(template, f.id, f.name, f.xKm, f.yKm, f.kind === 'region' ? f.outlineKm : []),
+    );
   }
 
   moveFeature(id: string, xKm: number, yKm: number): void {
-    this.replaceFeature(id, 'Déplacer un lieu', (f) => ({ ...f, xKm: round2(xKm), yKm: round2(yKm) }));
+    this.replaceFeature(id, 'Déplacer un lieu', (f): MapFeature => {
+      const x = round2(xKm);
+      const y = round2(yKm);
+      if (f.kind !== 'region') return { ...f, xKm: x, yKm: y };
+      // A zone moves with its name.
+      return { ...f, xKm: x, yKm: y, outlineKm: translateRing(f.outlineKm, x - f.xKm, y - f.yKm).map(round2) };
+    });
   }
 
   removeFeature(id: string): void {
@@ -642,6 +680,9 @@ export class EditorFacade {
     }
   }
 }
+
+/** Smallest zone worth naming (cells²): below, it was surely a slip of the mouse. */
+const MIN_ZONE_AREA_CELLS = 4;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));

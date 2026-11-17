@@ -28,6 +28,15 @@ export const LABEL_STYLE = {
   /** Extra free space kept around each placed name. */
   collisionMarginPx: 2,
   selection: 'rgb(224 164 58)',
+  zoneFill: 'rgb(224 164 58 / 0.12)',
+  /** Zone names: font size from the zone's width on screen (÷ 14), clamped. */
+  zoneFontMinPx: 12,
+  zoneFontMaxPx: 24,
+  /** A zone is named only when its name (unspread) takes at most this share of its width. */
+  zoneFitFraction: 0.85,
+  /** Letters spread to cover this share of the zone width, at most `zoneMaxSpacingEm` apart. */
+  zoneSpreadFraction: 0.6,
+  zoneMaxSpacingEm: 0.9,
 } as const;
 
 export function minPxPerKm(rank: ImportanceRank): number {

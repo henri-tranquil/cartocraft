@@ -1,4 +1,5 @@
-import { MapFeature } from '../domain/features/map-feature';
+import { MapFeature, RegionFeature } from '../domain/features/map-feature';
+import { ringBounds } from '../domain/features/polygon';
 import { LABEL_STYLE, labelFontPx, minPxPerKm } from './style/label-style';
 import { cellToScreen, Viewport } from './viewport';
 
@@ -8,6 +9,8 @@ import { cellToScreen, Viewport } from './viewport';
  *
  * Two filters decide what shows:
  *  1. Scale: each importance rank has a minimum px/km (label-style.ts).
+ *     A zone's name also needs room: it shows only once it fits inside the
+ *     zone on screen, so a small plain gets named only when zoomed in.
  *  2. Collisions: names are placed in order of importance; a name whose box
  *     overlaps an already placed one is dropped. Greedy, O(n²) in the
  *     number of visible names — fine for hundreds; a grid index if it ever
@@ -56,6 +59,7 @@ export function symbolSizePx(feature: MapFeature): number {
     case 'peak':
       return 5;
     case 'label':
+    case 'region':
       return 0;
   }
 }
@@ -80,7 +84,8 @@ export function layoutLabels(
   for (const { feature } of candidates) {
     const dragged = options.dragged?.id === feature.id ? options.dragged : null;
     const { x, y } = cellToScreen(vp, (dragged?.xKm ?? feature.xKm) / cellKm, (dragged?.yKm ?? feature.yKm) / cellKm);
-    const label = layoutOne(feature, x, y, measure);
+    const label = feature.kind === 'region' ? layoutZone(feature, x, y, vp, cellKm, measure, feature.id === selectedId) : layoutOne(feature, x, y, measure);
+    if (!label) continue;
     const { box } = label;
     if (box.x1 < 0 || box.y1 < 0 || box.x0 > vp.widthPx || box.y0 > vp.heightPx) continue;
     const collides = placed.some((p) => box.x0 < p.box.x1 + m && box.x1 + m > p.box.x0 && box.y0 < p.box.y1 + m && box.y1 + m > p.box.y0);
@@ -92,7 +97,7 @@ export function layoutLabels(
 
 function layoutOne(feature: MapFeature, x: number, y: number, measure: TextMeasure): PlacedLabel {
   const fontPx = labelFontPx(feature.rank);
-  const water = feature.kind === 'label' && feature.tone === 'water';
+  const water = (feature.kind === 'label' || feature.kind === 'region') && feature.tone === 'water';
   const spacingPx = water ? fontPx * LABEL_STYLE.waterSpacingEm : 0;
   const text = feature.name.trim() || UNNAMED_TEXT;
   const width = measure(text, fontPx, spacingPx);
@@ -103,6 +108,82 @@ function layoutOne(feature: MapFeature, x: number, y: number, measure: TextMeasu
   }
   const textX = x + symbolPx + LABEL_STYLE.gapPx;
   return { feature, x, y, text, textX, align: 'left', fontPx, spacingPx, symbolPx, box: { x0: x - symbolPx, y0: y - half, x1: textX + width, y1: y + half } };
+}
+
+/**
+ * A zone's name: size grows with the zone on screen, letters spread over ~60 %
+ * of its width (the old-map look). Null when the name does not fit.
+ */
+function layoutZone(
+  feature: RegionFeature,
+  x: number,
+  y: number,
+  vp: Viewport,
+  cellKm: number,
+  measure: TextMeasure,
+  selected: boolean,
+): PlacedLabel | null {
+  const bounds = ringBounds(feature.outlineKm);
+  const zoneWidthPx = ((bounds.x1 - bounds.x0) / cellKm) * vp.pixelsPerCell;
+  const fontPx = Math.min(LABEL_STYLE.zoneFontMaxPx, Math.max(LABEL_STYLE.zoneFontMinPx, zoneWidthPx / 14));
+  const text = feature.name.trim() || UNNAMED_TEXT;
+  const plainWidth = measure(text, fontPx, 0);
+  if (plainWidth > zoneWidthPx * LABEL_STYLE.zoneFitFraction && !selected) return null;
+  const gaps = Math.max(1, text.length - 1);
+  const spread = (zoneWidthPx * LABEL_STYLE.zoneSpreadFraction - plainWidth) / gaps;
+  const spacingPx = Math.max(feature.tone === 'water' ? fontPx * LABEL_STYLE.waterSpacingEm : 0, Math.min(fontPx * LABEL_STYLE.zoneMaxSpacingEm, spread));
+  const width = measure(text, fontPx, spacingPx);
+  const half = fontPx * 0.6;
+  return { feature, x, y, text, textX: x, align: 'center', fontPx, spacingPx, symbolPx: 0, box: { x0: x - width / 2, y0: y - half, x1: x + width / 2, y1: y + half } };
+}
+
+/** Zone outlines (Names section only: the finished map shows just the names). */
+export function drawZoneOutlines(
+  ctx: CanvasRenderingContext2D,
+  vp: Viewport,
+  cellKm: number,
+  features: readonly MapFeature[],
+  selectedId: string | null,
+): void {
+  ctx.save();
+  for (const feature of features) {
+    if (feature.kind !== 'region') continue;
+    const selected = feature.id === selectedId;
+    ctx.beginPath();
+    const ring = feature.outlineKm;
+    for (let i = 0; i < ring.length; i += 2) {
+      const p = cellToScreen(vp, ring[i] / cellKm, ring[i + 1] / cellKm);
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.closePath();
+    ctx.setLineDash(selected ? [] : [5, 4]);
+    ctx.lineWidth = selected ? 2 : 1.25;
+    ctx.strokeStyle = selected ? LABEL_STYLE.selection : feature.tone === 'water' ? LABEL_STYLE.waterInk : LABEL_STYLE.ink;
+    if (selected) {
+      ctx.fillStyle = LABEL_STYLE.zoneFill;
+      ctx.fill();
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** Live lasso while drawing a zone (screen points). */
+export function drawLasso(ctx: CanvasRenderingContext2D, points: readonly number[]): void {
+  if (points.length < 4) return;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(points[0], points[1]);
+  for (let i = 2; i < points.length; i += 2) ctx.lineTo(points[i], points[i + 1]);
+  ctx.closePath();
+  ctx.fillStyle = LABEL_STYLE.zoneFill;
+  ctx.fill();
+  ctx.setLineDash([5, 4]);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = LABEL_STYLE.selection;
+  ctx.stroke();
+  ctx.restore();
 }
 
 /** Topmost placed label under a screen point (with a small tolerance for tiny symbols). */
@@ -131,7 +212,7 @@ export function drawLabels(ctx: CanvasRenderingContext2D, placed: readonly Place
     const label = placed[k];
     if (label.feature.id === selectedId) drawSelection(ctx, label.box);
     drawSymbol(ctx, label);
-    const water = label.feature.kind === 'label' && label.feature.tone === 'water';
+    const water = (label.feature.kind === 'label' || label.feature.kind === 'region') && label.feature.tone === 'water';
     ctx.font = `${label.fontPx}px ${LABEL_STYLE.font}`;
     ctx.letterSpacing = `${label.spacingPx}px`;
     ctx.textAlign = label.align;

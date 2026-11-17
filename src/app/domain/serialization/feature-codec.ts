@@ -5,6 +5,8 @@ import {
   LabelTone,
   MapFeature,
   MAX_FEATURE_NAME_LENGTH,
+  MAX_OUTLINE_POINTS,
+  MIN_OUTLINE_POINTS,
   SETTLEMENT_SIZES,
   SettlementSize,
 } from '../features/map-feature';
@@ -42,6 +44,20 @@ function parseFeature(item: unknown, index: number): MapFeature {
     case 'label':
       if (!isOneOf<LabelTone>(item['tone'], LABEL_TONES)) throw invalid('ton');
       return { ...base, kind, tone: item['tone'] };
+    case 'region': {
+      if (!isOneOf<LabelTone>(item['tone'], LABEL_TONES)) throw invalid('ton');
+      const outline = item['outlineKm'];
+      if (
+        !Array.isArray(outline) ||
+        outline.length % 2 !== 0 ||
+        outline.length < MIN_OUTLINE_POINTS * 2 ||
+        outline.length > MAX_OUTLINE_POINTS * 2 ||
+        !outline.every((v: unknown) => typeof v === 'number' && Number.isFinite(v))
+      ) {
+        throw invalid('contour');
+      }
+      return { ...base, kind, tone: item['tone'], outlineKm: outline as number[] };
+    }
     default:
       throw invalid('type');
   }

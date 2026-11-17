@@ -14,6 +14,15 @@ const capital = createFeature({ kind: 'settlement', size: 'capital' }, 'cap', 'C
 const village = createFeature({ kind: 'settlement', size: 'village' }, 'vil', 'Hameau', 60, 60);
 
 describe('layoutLabels', () => {
+  it('names a zone only once its name fits inside it on screen', () => {
+    // A 20 km wide plain centred on the view.
+    const plain = createFeature({ kind: 'region', tone: 'land' }, 'pl', 'Plaine', 50, 50, [40, 45, 60, 45, 60, 55, 40, 55]);
+    expect(layoutLabels([plain], view(1), 1, measure)).toEqual([]); // 20 px wide: no room
+    const placed = layoutLabels([plain], view(20), 1, measure); // 400 px wide
+    expect(placed).toHaveLength(1);
+    expect(placed[0].spacingPx).toBeGreaterThan(0); // letters spread over the zone
+  });
+
   it('shows small places only at large scales', () => {
     expect(layoutLabels([capital, village], view(1), 1, measure).map((l) => l.feature.id)).toEqual(['cap']);
     expect(layoutLabels([capital, village], view(20), 1, measure).map((l) => l.feature.id)).toEqual(['cap', 'vil']);

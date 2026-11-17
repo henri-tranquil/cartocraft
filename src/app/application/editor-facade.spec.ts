@@ -110,6 +110,24 @@ describe('EditorFacade', () => {
     expect(facade.selectedFeature()).toBeNull();
   });
 
+  it('draws a zone, names it at its widest point and moves it with its outline', async () => {
+    await facade.createBlankMap(SMALL_MAP, 'A');
+    facade.setNamesEditing(true);
+    facade.setNewPlaceTemplate({ kind: 'region', tone: 'land' });
+    facade.addZone([10, 10, 11, 10, 11, 11]); // too small: a slip of the mouse
+    expect(facade.features()).toHaveLength(0);
+
+    facade.addZone([10, 10, 50, 10, 50, 30, 10, 30]);
+    const zone = facade.selectedFeature();
+    expect(zone?.kind).toBe('region');
+    expect(zone?.xKm).toBeCloseTo(30, 0);
+    expect(zone?.yKm).toBeCloseTo(20, 0);
+
+    facade.moveFeature(zone!.id, zone!.xKm + 5, zone!.yKm);
+    const moved = facade.selectedFeature();
+    expect(moved?.kind === 'region' && moved.outlineKm.slice(0, 2)).toEqual([15, 10]);
+  });
+
   it('duplicates and deletes, closing the current map if deleted', async () => {
     await facade.createBlankMap(SMALL_MAP, 'A');
     const id = facade.currentMapId()!;

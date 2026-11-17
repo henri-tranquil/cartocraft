@@ -1,6 +1,14 @@
-import { ChangeDetectionStrategy, Component, effect, ElementRef, inject, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, ElementRef, inject, viewChild } from '@angular/core';
 import { EditorFacade } from '../../application/editor-facade';
-import { FeatureTemplate, IMPORTANCE_RANKS, ImportanceRank, MapFeature, MAX_FEATURE_NAME_LENGTH } from '../../domain/features/map-feature';
+import {
+  FeatureTemplate,
+  IMPORTANCE_RANKS,
+  ImportanceRank,
+  isZoneTemplate,
+  MapFeature,
+  MAX_FEATURE_NAME_LENGTH,
+  templateOf,
+} from '../../domain/features/map-feature';
 import { Icon, IconName } from '../icon/icon';
 
 interface TemplateDef {
@@ -17,7 +25,9 @@ const TEMPLATES: readonly TemplateDef[] = [
   { template: { kind: 'settlement', size: 'village' }, icon: 'village', short: 'Village', title: 'Village : visible de près' },
   { template: { kind: 'peak' }, icon: 'peak', short: 'Sommet', title: 'Sommet' },
   { template: { kind: 'label', tone: 'land' }, icon: 'land', short: 'Terre', title: 'Nom de terre : région, plaine, île, péninsule…' },
-  { template: { kind: 'label', tone: 'water' }, icon: 'water', short: 'Mer', title: 'Nom d’eau : mer, golfe, détroit, lac…' },
+  { template: { kind: 'label', tone: 'water' }, icon: 'water', short: 'Mer', title: 'Nom d’eau : mer, détroit, lac… (un point)' },
+  { template: { kind: 'region', tone: 'land' }, icon: 'zone', short: 'Zone', title: 'Zone de terre : plaine, plateau, région… Glissez pour dessiner son contour' },
+  { template: { kind: 'region', tone: 'water' }, icon: 'bay', short: 'Golfe', title: 'Zone d’eau : baie, golfe, lagune… Glissez pour dessiner son contour' },
 ];
 
 /** "Visible from…": the order of magnitude of the area on screen when the name appears (on a ~1000 px wide map). */
@@ -33,23 +43,18 @@ function sameTemplate(a: FeatureTemplate, b: FeatureTemplate): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-function templateOf(feature: MapFeature): FeatureTemplate {
-  switch (feature.kind) {
-    case 'settlement':
-      return { kind: 'settlement', size: feature.size };
-    case 'peak':
-      return { kind: 'peak' };
-    case 'label':
-      return { kind: 'label', tone: feature.tone };
-  }
-}
-
 @Component({
   selector: 'cc-names-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [Icon],
   template: `
-    <p class="hint">Cliquez sur la carte pour poser un lieu, glissez un nom pour le déplacer. Plus on zoome, plus les petits lieux apparaissent.</p>
+    <p class="hint">
+      @if (drawingZones()) {
+        Glissez sur la carte pour dessiner le contour de la zone (clic droit : déplacer la carte). Son nom n’apparaît que s’il y tient : zoomez pour les petites zones.
+      } @else {
+        Cliquez sur la carte pour poser un lieu, glissez un nom pour le déplacer. Plus on zoome, plus les petits lieux apparaissent.
+      }
+    </p>
     <div class="templates" role="radiogroup" aria-label="Type du prochain lieu">
       @for (def of templates; track def.short) {
         <button
@@ -84,7 +89,7 @@ function templateOf(feature: MapFeature): FeatureTemplate {
         <div class="field">
           <span>Type</span>
           <div class="row">
-            @for (def of templates; track def.short) {
+            @for (def of compatibleTemplates(feature); track def.short) {
               <button
                 type="button"
                 class="cc-btn shape-feuille mini"
@@ -161,6 +166,14 @@ export class NamesPanel {
       const feature = this.facade.selectedFeature();
       if (input && feature && feature.name === '') input.focus();
     });
+  }
+
+  protected readonly drawingZones = computed(() => isZoneTemplate(this.facade.newPlaceTemplate()));
+
+  /** A point cannot become a zone (it has no outline), nor the reverse. */
+  protected compatibleTemplates(feature: MapFeature): readonly TemplateDef[] {
+    const zone = feature.kind === 'region';
+    return TEMPLATES.filter((def) => isZoneTemplate(def.template) === zone);
   }
 
   protected isNewTemplate(template: FeatureTemplate): boolean {

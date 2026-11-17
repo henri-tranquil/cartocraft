@@ -24,7 +24,9 @@ import { drawWindOverlay } from '../../rendering/wind-overlay';
 import { windFromDirection } from '../../domain/climate/wind';
 import { drawLatitudeOverlay, LatitudeHandle, latitudeScreenY, PIN_HIT_TOLERANCE_PX, pinScreenY, tiltLines } from '../../rendering/latitude-overlay';
 import { latitudeAtRow } from '../../domain/map/latitude';
-import { canvasTextMeasure, drawLabels, labelAt, layoutLabels, PlacedLabel } from '../../rendering/label-layer';
+import { canvasTextMeasure, drawLabels, drawLasso, drawZoneOutlines, labelAt, layoutLabels, PlacedLabel } from '../../rendering/label-layer';
+import { simplifyPolyline } from '../../domain/features/polygon';
+import { isZoneTemplate } from '../../domain/features/map-feature';
 import { LABEL_STYLE } from '../../rendering/style/label-style';
 
 const WHEEL_ZOOM_SPEED = 0.0015;
@@ -33,6 +35,9 @@ const VIEW_SAVE_DEBOUNCE_MS = 400;
 const BACKGROUND = '#e2cfa6';
 /** Below this pointer travel a press is a click (place / select), above it a drag (move / pan). */
 const CLICK_SLOP_PX = 4;
+/** Lasso: a new point every 3 px of pointer travel, simplified to 1.5 px on release. */
+const LASSO_STEP_PX = 3;
+const LASSO_TOLERANCE_PX = 1.5;
 
 @Component({
   selector: 'cc-map-canvas',
@@ -112,10 +117,12 @@ export class MapCanvas {
   private namesGesture: { pointerId: number; startX: number; startY: number; lastX: number; lastY: number; hitId: string | null; moved: boolean } | null = null;
   private readonly draggedFeature = signal<{ id: string; xKm: number; yKm: number } | null>(null);
   protected readonly hoveringLabel = signal(false);
+  /** Zone outline being drawn (screen px, flat [x0, y0, …]). */
+  private readonly lasso = signal<readonly number[] | null>(null);
 
   protected readonly cursor = computed(() => {
     if (this.hoveredPin() !== null) return 'ns-resize';
-    if (this.facade.namesEditing()) return this.hoveringLabel() ? 'move' : 'copy';
+    if (this.facade.namesEditing()) return this.hoveringLabel() ? 'move' : isZoneTemplate(this.facade.newPlaceTemplate()) ? 'crosshair' : 'copy';
     return this.facade.effectiveTool() === 'pan' ? 'grab' : 'crosshair';
   });
 
@@ -160,6 +167,7 @@ export class MapCanvas {
       this.facade.features();
       this.facade.selectedFeatureId();
       this.draggedFeature();
+      this.lasso();
       this.requestDraw();
     });
 
@@ -203,6 +211,7 @@ export class MapCanvas {
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       const hit = labelAt(this.placedLabels, event.offsetX, event.offsetY);
       if (hit) this.facade.selectFeature(hit.feature.id);
+      else if (isZoneTemplate(this.facade.newPlaceTemplate())) this.lasso.set([event.offsetX, event.offsetY]);
       this.namesGesture = { pointerId: event.pointerId, startX: event.offsetX, startY: event.offsetY, lastX: event.offsetX, lastY: event.offsetY, hitId: hit?.feature.id ?? null, moved: false };
       return;
     }
@@ -236,7 +245,13 @@ export class MapCanvas {
     const names = this.namesGesture;
     if (names?.pointerId === event.pointerId) {
       names.moved ||= Math.hypot(event.offsetX - names.startX, event.offsetY - names.startY) > CLICK_SLOP_PX;
-      if (names.moved && names.hitId) {
+      const lasso = this.lasso();
+      if (lasso) {
+        const n = lasso.length;
+        if (Math.hypot(event.offsetX - lasso[n - 2], event.offsetY - lasso[n - 1]) >= LASSO_STEP_PX) {
+          this.lasso.set([...lasso, event.offsetX, event.offsetY]);
+        }
+      } else if (names.moved && names.hitId) {
         const map = this.facade.renderMap();
         const cell = screenToCell(vp, event.offsetX, event.offsetY);
         if (map) this.draggedFeature.set({ id: names.hitId, xKm: cell.x * map.settings.baseCellKm, yKm: cell.y * map.settings.baseCellKm });
@@ -276,8 +291,20 @@ export class MapCanvas {
       this.namesGesture = null;
       const dragged = this.draggedFeature();
       this.draggedFeature.set(null);
+      const lasso = this.lasso();
+      this.lasso.set(null);
       const vp = this.viewport();
-      if (dragged && event.type === 'pointerup') this.facade.moveFeature(dragged.id, dragged.xKm, dragged.yKm);
+      if (lasso) {
+        if (vp && event.type === 'pointerup') {
+          const outline = simplifyPolyline(lasso, LASSO_TOLERANCE_PX);
+          const cells: number[] = [];
+          for (let i = 0; i < outline.length; i += 2) {
+            const c = screenToCell(vp, outline[i], outline[i + 1]);
+            cells.push(c.x, c.y);
+          }
+          this.facade.addZone(cells);
+        }
+      } else if (dragged && event.type === 'pointerup') this.facade.moveFeature(dragged.id, dragged.xKm, dragged.yKm);
       else if (!names.moved && !names.hitId && vp && event.type === 'pointerup') {
         this.facade.addFeatureAt(screenToCell(vp, event.offsetX, event.offsetY));
       }
@@ -398,11 +425,14 @@ export class MapCanvas {
 
   private drawNames(ctx: CanvasRenderingContext2D, vp: Viewport, map: WorldMap): void {
     const selectedId = this.facade.selectedFeatureId();
+    if (this.facade.namesEditing()) drawZoneOutlines(ctx, vp, map.settings.baseCellKm, this.facade.features(), selectedId);
     this.placedLabels = layoutLabels(this.facade.features(), vp, map.settings.baseCellKm, canvasTextMeasure(ctx), {
       selectedId,
       dragged: this.draggedFeature(),
     });
     drawLabels(ctx, this.placedLabels, selectedId);
+    const lasso = this.lasso();
+    if (lasso) drawLasso(ctx, lasso);
   }
 
   /** Which ruler handle (pin, tropic, polar circle) is within reach of screen row `sy`; pins win ties. */

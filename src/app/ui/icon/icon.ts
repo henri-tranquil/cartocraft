@@ -32,7 +32,9 @@ export type IconName =
   | 'town'
   | 'village'
   | 'peak'
-  | 'land';
+  | 'land'
+  | 'zone'
+  | 'bay';
 
 /**
  * Inline stroke pictograms (they follow `currentColor`). Decorative by default:
@@ -102,6 +104,14 @@ export type IconName =
         }
         @case ('land') {
           <path d="M4 18c1-6 4-11 9-12 4 1 6 5 7 9-3 3-9 4-16 3z" />
+        }
+        @case ('zone') {
+          <path d="M4 15c0-5 3-9 8-9s8 3 8 7-4 6-8 6-8 1-8-4z" stroke-dasharray="3 2.5" />
+          <path d="M9 13h6" />
+        }
+        @case ('bay') {
+          <path d="M3 6c4 0 5 3 9 3s5-3 9-3" />
+          <path d="M4 20c1-6 3-9 8-9s7 3 8 9" stroke-dasharray="3 2.5" />
         }
         @case ('names') {
           <path d="M5 20L12 4l7 16M8 14h8" />

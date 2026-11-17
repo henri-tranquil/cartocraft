@@ -23,6 +23,9 @@ import { MapSettings } from '../src/app/domain/map/map-settings';
 import { clampInt16, setCell } from '../src/app/domain/terrain/tiled-grid';
 import { exportMapToBlob } from '../src/app/infrastructure/persistence/map-file';
 import { SAMPLE_JAPAN } from '../src/app/application/samples';
+import { createFeature, MapFeature } from '../src/app/domain/features/map-feature';
+import { poleOfInaccessibility } from '../src/app/domain/features/polygon';
+import { JAPAN_PLACES } from './japan-places';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CACHE = join(ROOT, 'scripts/.cache/terrarium');
@@ -104,6 +107,33 @@ async function elevationAt(lat: number, lon: number): Promise<number> {
   return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
 }
 
+/** Inverse of the per-cell projection used for the relief (km from the top-left corner). */
+function projectKm(lat: number, lon: number): [number, number] {
+  const kmPerDegLon = KM_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180);
+  return [(lon - CENTRAL_LON) * kmPerDegLon + settings.widthKm / 2, (settings.latitudeTopDeg - lat) * KM_PER_DEG_LAT];
+}
+
+const round2 = (v: number) => Math.round(v * 100) / 100;
+
+function japanFeatures(): MapFeature[] {
+  return JAPAN_PLACES.map((place, i) => {
+    const id = `japon-${i}`;
+    let feature: MapFeature;
+    if (place.outline) {
+      const outlineKm: number[] = [];
+      for (let k = 0; k < place.outline.length; k += 2) outlineKm.push(...projectKm(place.outline[k], place.outline[k + 1]).map(round2));
+      const pole = poleOfInaccessibility(outlineKm, 0.5);
+      feature = createFeature(place.template, id, place.name, round2(pole.x), round2(pole.y), outlineKm);
+    } else if (place.at) {
+      const [x, y] = projectKm(place.at[0], place.at[1]);
+      feature = createFeature(place.template, id, place.name, round2(x), round2(y));
+    } else {
+      throw new Error(`${place.name}: no position`);
+    }
+    return place.rank ? { ...feature, rank: place.rank } : feature;
+  });
+}
+
 async function main(): Promise<void> {
   const nowIso = new Date().toISOString();
   const map = MapFactory.blank(settings, { id: SAMPLE_JAPAN.id, name: SAMPLE_JAPAN.name, nowIso });
@@ -118,6 +148,7 @@ async function main(): Promise<void> {
       setCell(grid, x, y, clampInt16(Math.round(await elevationAt(lat, lon))));
     }
   }
+  map.features.push(...japanFeatures());
   await mkdir(dirname(OUT), { recursive: true });
   const blob = await exportMapToBlob(map);
   await writeFile(OUT, Buffer.from(await blob.arrayBuffer()));
