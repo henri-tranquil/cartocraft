@@ -15,7 +15,7 @@ import { AutoSave } from './auto-save';
 import { ClimateService } from './climate';
 import { SampleMaps } from './sample-maps';
 import { windAt, WindVector } from '../domain/climate/wind';
-import { ClimateResult, humidityAtPct, temperatureAtC } from '../domain/climate/climate-model';
+import { ClimateResult, precipitationAtMm, temperatureAtC } from '../domain/climate/climate-model';
 import { MapStore } from './map-store';
 import { MAP_FILE_CODEC, MAP_REPOSITORY } from './ports';
 import { EditorTool, ToolContext } from './tools/editor-tool';
@@ -27,14 +27,14 @@ import {
 } from './tools/terrain-brush-tools';
 
 /** What the map shows: the editing relief view, or a climate field. */
-export type ViewMode = 'relief' | 'landscape' | 'temperature' | 'humidity' | 'wind';
+export type ViewMode = 'relief' | 'landscape' | 'temperature' | 'precipitation' | 'wind';
 
 /** What the renderer needs to colour by a climate field. */
 export interface ClimateOverlay {
   readonly result: ClimateResult;
   readonly yearPhase: number;
   /** Wind view draws its arrows over landscape colours. */
-  readonly colouring: 'landscape' | 'temperature' | 'humidity';
+  readonly colouring: 'landscape' | 'temperature' | 'precipitation';
 }
 
 /** 'pan' is a view-only mode handled by the canvas; the others are EditorTools. */
@@ -250,14 +250,11 @@ export class EditorFacade {
     return temperatureAtC(result, y * result.widthCells + x, this.yearPhaseState());
   }
 
-  /** Relative humidity under a point at the current season, %; null if unknown. */
-  humidityAt(point: CellPoint): number | null {
+  /** Precipitation under a point at the current season, mm/month; null if unknown. */
+  precipitationAt(point: CellPoint): number | null {
     const result = this.climate.result();
-    if (!result) return null;
-    const x = Math.floor(point.x);
-    const y = Math.floor(point.y);
-    if (x < 0 || y < 0 || x >= result.widthCells || y >= result.heightCells) return null;
-    return humidityAtPct(result, y * result.widthCells + x, this.yearPhaseState());
+    if (!result || point.x < 0 || point.y < 0 || point.x >= result.widthCells || point.y >= result.heightCells) return null;
+    return precipitationAtMm(result, point.x, point.y, this.yearPhaseState());
   }
 
   /** Prevailing wind under a point at the current season; null if unknown. */

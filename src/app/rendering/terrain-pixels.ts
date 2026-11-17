@@ -1,10 +1,10 @@
 import { CellRect, getCellClamped, INT16_MIN, Int16TiledGrid } from '../domain/terrain/tiled-grid';
-import { ClimateResult, monthBlend, TEMPERATURE_SCALE } from '../domain/climate/climate-model';
+import { ClimateResult, monthBlend, sampleCoarseMonthly, TEMPERATURE_SCALE } from '../domain/climate/climate-model';
 import { AltitudePalette } from './style/altitude-palette';
-import { ClimateLuts } from './style/climate-palettes';
+import { ClimateLuts, PRECIPITATION_PALETTE_MAX_MM } from './style/climate-palettes';
 import { TEMPERATURE_PALETTE_MAX_C, TEMPERATURE_PALETTE_MIN_C } from './style/temperature-palette';
 
-export type ClimateColouring = 'landscape' | 'temperature' | 'humidity';
+export type ClimateColouring = 'landscape' | 'temperature' | 'precipitation';
 
 /** Colour by a climate field at a given season instead of by altitude. */
 export interface ClimateLayer {
@@ -65,7 +65,8 @@ export function renderTerrainPixels(
 
   // Climate views: resolve the season blend once, not per pixel.
   const tData = climate?.result.temperatureDeciC;
-  const hData = climate?.result.humidityPct;
+  const wData = climate?.result.wetnessPct;
+  const precip = climate?.result.precipitationMm;
   const tWidth = climate?.result.widthCells ?? 0;
   const fieldSize = tWidth * (climate?.result.heightCells ?? 0);
   const blend = climate ? monthBlend(climate.yearPhase) : { m0: 0, m1: 0, f: 0 };
@@ -90,11 +91,11 @@ export function renderTerrainPixels(
       let g: number;
       let b: number;
       const isSea = altitude <= palette.seaLevelM;
-      if (climate && tData && hData) {
+      if (climate && tData && wData && precip) {
         const i = y * tWidth + x;
         const tC = (tData[off0 + i] + (tData[off1 + i] - tData[off0 + i]) * blend.f) / TEMPERATURE_SCALE;
         const ti = Math.min(tMaxIndex, Math.max(0, Math.round(tC) - TEMPERATURE_PALETTE_MIN_C));
-        const rh = Math.round(hData[off0 + i] + (hData[off1 + i] - hData[off0 + i]) * blend.f);
+        const wet = Math.round(wData[off0 + i] + (wData[off1 + i] - wData[off0 + i]) * blend.f);
         let lut: Uint8Array;
         let li: number;
         if (climate.colouring === 'landscape') {
@@ -103,11 +104,12 @@ export function renderTerrainPixels(
             li = (altitude - INT16_MIN) * 3;
           } else {
             lut = climate.luts.landscape;
-            li = (ti * 101 + rh) * 3;
+            li = (ti * 101 + wet) * 3;
           }
-        } else if (climate.colouring === 'humidity') {
-          lut = climate.luts.humidity;
-          li = rh * 3;
+        } else if (climate.colouring === 'precipitation') {
+          lut = climate.luts.precipitation;
+          const mm = sampleCoarseMonthly(climate.result, precip, x + 0.5, y + 0.5, climate.yearPhase);
+          li = Math.min(PRECIPITATION_PALETTE_MAX_MM, Math.max(0, Math.round(mm))) * 3;
         } else {
           lut = climate.luts.temperature;
           li = ti * 3;

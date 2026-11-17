@@ -157,10 +157,16 @@ Le calcul se fait sur la grille de base (inutile de descendre plus fin), dans un
 **Brique 3 (vents + advection)** :
 - Vents dominants : modèle à trois cellules, `u = −U·sin(6|φ|)`, ceintures décalées de 40 % de la déclinaison.
 - Advection semi-lagrangienne sur une **grille grossière** (≤ 256 cellules de côté), balayages alternés en place ; relaxation `e^(−Δs/L)`, `L = vitesse × τ` (τ terre 1 j, mer ½ j). La correction (T advectée − T locale) est rééchantillonnée et ajoutée aux températures fines (qui gardent l'altitude).
-- Humidité : vapeur d'eau advectée, plafonnée à la saturation (Clausius-Clapeyron) ; sortie = humidité relative `Uint8` en %.
-- Vue « Paysage » : couleur continue f(température, humidité) (ocre sec → vert, brun au repos, neige, banquise). L'humidité relative est un **proxy provisoire** : la brique 4 (précipitations) doit la remplacer pour la végétation.
+- Humidité : vapeur d'eau advectée ; la mer évapore selon **sa propre température** (air froid sur mer chaude → averses, effet de lac).
 - **Mousson** (`monsoon.ts`) : anomalie thermique (T d'équilibre − T de la mer à la même latitude), lissée à ~600 km ; l'air remonte ce gradient (froid → chaud, des hautes vers les basses pressions), dévié par Coriolis jusqu'à 55° (traversée des isobares à 35° à cause du frottement), atténué près de l'équateur. Vent total = ceintures + mousson, **par cellule grossière** (`windGrid`).
 - Calibrage sur le Japon : mer à 22 % de l'oscillation saisonnière, τ mer 1 jour. Écart moyen aux 7 stations ≈ 1,9 °C. Restent trop doux en hiver : Sapporo (+4), Osaka/Kagoshima/Busan (+2,5) — le vrai anticyclone de Sibérie est hors de la carte.
+
+**Brique 4 (précipitations, relief)** :
+- Vapeur plafonnée à 90 % de la saturation **à la hauteur du relief** (hauteur vue par l'air = moyenne + ½ (max − moyenne) de la cellule grossière). L'excédent condense : pluie orographique = efficacité × flux de vapeur × excédent / largeur de cellule. L'air redescend sec derrière : ombre pluviométrique, sans règle spéciale.
+- Pluie de fond (fronts, convection) : colonne d'eau × lissage(HR 0,45 → 0,9) / temps de vidange.
+- Sorties : `precipitationMm` (Float32, grille grossière) et `wetnessPct` (Uint8, fine) = pluie / (pluie + ETP), moyenne mois courant + précédent ; ETP ≈ 10 + 4,6·T mm/mois. La végétation (vue Paysage) suit `wetnessPct`. Vue « Pluie » en mm/mois.
+- Calibrage (Japon) : temps de vidange 3 j, efficacité orographique 0,2, HR d'équilibre terre 0,6. Écart annuel moyen ×1,5. **Limites** : Sapporo ×3 trop sec, Busan trop humide, Tokyo sec en hiver ; pas de front saisonnier (baiu), ni de typhons, ni de rails de tempêtes. Pas de déviation du vent par le relief ni de blocage de l'air froid (à faire).
+- Performance : ~3,4 s pour 1700² (Worker).
 
 Rendu : la couleur des terres suit un dégradé continu en fonction (température, humidité) : ocre sec, vert humide, blanc enneigé. Un curseur (timeline) de saison anime le tout : la neige descend, la végétation change de teinte, les fleuves du nord gèlent.
 

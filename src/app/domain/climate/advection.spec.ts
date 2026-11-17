@@ -1,6 +1,6 @@
-import { advect, coarseGridFor } from './advection';
+import { advect, coarseGridFor, upsampleAt, upsampleInto } from './advection';
 import { computeClimate } from './climate';
-import { ClimateInput, humidityAtPct, temperatureAtC } from './climate-model';
+import { ClimateInput, precipitationAtMm, temperatureAtC } from './climate-model';
 import { windAt } from './wind';
 
 const JANUARY = 0.04;
@@ -27,6 +27,15 @@ describe('advection', () => {
     expect(field[3]).toBeCloseTo(1.25, 5);
   });
 
+  it('upsamples a whole field exactly like the per-cell version', () => {
+    const grid = coarseGridFor(50, 30, 1);
+    const g7 = { ...grid, width: 8, height: 5, factor: 7 };
+    const coarse = Float32Array.from({ length: 40 }, (_, i) => (i * 7) % 11);
+    const out = new Float32Array(50 * 30);
+    upsampleInto(coarse, g7, 50, 30, out);
+    for (const [x, y] of [[0, 0], [13, 4], [49, 29], [25, 17]]) expect(out[y * 50 + x]).toBeCloseTo(upsampleAt(coarse, g7, x, y), 4);
+  });
+
   it('sizes the coarse grid to at most 256 cells per side', () => {
     expect(coarseGridFor(1700, 1700, 1)).toEqual({ width: 243, height: 243, factor: 7, cellKm: 7 });
     expect(coarseGridFor(100, 50, 1).factor).toBe(1);
@@ -39,7 +48,7 @@ describe('advection', () => {
     const coast = temperatureAtC(result, row + 122, JANUARY);
     const inland = temperatureAtC(result, row + 230, JANUARY);
     expect(coast).toBeGreaterThan(inland + 3);
-    expect(humidityAtPct(result, row + 122, JANUARY)).toBeGreaterThan(humidityAtPct(result, row + 230, JANUARY));
+    expect(precipitationAtMm(result, 122, 20, JANUARY)).toBeGreaterThan(precipitationAtMm(result, 230, 20, JANUARY));
   });
 });
 
@@ -60,5 +69,20 @@ describe('monsoon', () => {
     const jul = winterMinusSummer(0.54);
     expect(jan.vMs).toBeLessThan(jul.vMs); // more southward in winter
     expect(jul.vMs).toBeGreaterThan(0); // drawn north toward the warm land in summer
+  });
+});
+
+describe('orographic precipitation', () => {
+  it('rains on the windward side of a range and leaves a dry rain shadow behind it', () => {
+    const input = westOceanEastLand();
+    const w = input.widthCells;
+    const altitudeM = input.altitudeM.slice();
+    for (let y = 0; y < input.heightCells; y++) for (let x = 140; x < 146; x++) altitudeM[y * w + x] = 2500;
+    const result = computeClimate({ ...input, altitudeM });
+    const flat = computeClimate(input);
+    const windward = precipitationAtMm(result, 141, 20, JANUARY); // on the rising slope
+    const lee = precipitationAtMm(result, 160, 20, JANUARY);
+    expect(windward).toBeGreaterThan(precipitationAtMm(flat, 141, 20, JANUARY) * 1.5);
+    expect(lee).toBeLessThan(precipitationAtMm(flat, 160, 20, JANUARY));
   });
 });

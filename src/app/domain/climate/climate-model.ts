@@ -38,8 +38,13 @@ export interface ClimateResult {
    */
   readonly windUMs: Float32Array;
   readonly windVMs: Float32Array;
-  /** Relative humidity of the air, %, MONTHS row-major fields like temperatureDeciC. */
-  readonly humidityPct: Uint8Array;
+  /** Precipitation, mm/month, per COARSE cell (windGrid), MONTHS fields. */
+  readonly precipitationMm: Float32Array;
+  /**
+   * Soil wetness, % = rain / (rain + potential evaporation), averaged over this
+   * month and the previous one. Per fine cell, MONTHS fields. Drives vegetation colour.
+   */
+  readonly wetnessPct: Uint8Array;
 }
 
 /** Year phase at the middle of month `m` (0 = January). */
@@ -73,10 +78,35 @@ export function temperatureAtC(
   return (t0 + (t1 - t0) * f) / TEMPERATURE_SCALE;
 }
 
-/** Relative humidity at a cell for a continuous year phase, %. */
-export function humidityAtPct(result: ClimateResult, cellIndex: number, yearPhase: number): number {
-  const size = result.widthCells * result.heightCells;
+/** Bilinear sample of a coarse (windGrid) monthly field under fine cell (xCell, yCell), interpolated between months. */
+export function sampleCoarseMonthly(
+  result: Pick<ClimateResult, 'windGrid'>,
+  field: Float32Array,
+  xCell: number,
+  yCell: number,
+  yearPhase: number,
+): number {
+  const { width: w, height: h, factor } = result.windGrid;
+  const gx = Math.min(w - 1, Math.max(0, xCell / factor - 0.5));
+  const gy = Math.min(h - 1, Math.max(0, yCell / factor - 0.5));
+  const x0 = Math.floor(gx);
+  const y0 = Math.floor(gy);
+  const x1 = Math.min(w - 1, x0 + 1);
+  const y1 = Math.min(h - 1, y0 + 1);
+  const fx = gx - x0;
+  const fy = gy - y0;
   const { m0, m1, f } = monthBlend(yearPhase);
-  const h0 = result.humidityPct[m0 * size + cellIndex];
-  return h0 + (result.humidityPct[m1 * size + cellIndex] - h0) * f;
+  const at = (m: number) => {
+    const o = m * w * h;
+    const top = field[o + y0 * w + x0] * (1 - fx) + field[o + y0 * w + x1] * fx;
+    const bottom = field[o + y1 * w + x0] * (1 - fx) + field[o + y1 * w + x1] * fx;
+    return top * (1 - fy) + bottom * fy;
+  };
+  const v0 = at(m0);
+  return v0 + (at(m1) - v0) * f;
+}
+
+/** Precipitation under a fine cell at a continuous year phase, mm/month. */
+export function precipitationAtMm(result: ClimateResult, xCell: number, yCell: number, yearPhase: number): number {
+  return sampleCoarseMonthly(result, result.precipitationMm, xCell, yCell, yearPhase);
 }

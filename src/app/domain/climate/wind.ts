@@ -1,5 +1,5 @@
 import { solarDeclinationDeg } from './insolation';
-import { ClimateResult, monthBlend } from './climate-model';
+import { ClimateResult, sampleCoarseMonthly } from './climate-model';
 
 /**
  * PREVAILING SURFACE WINDS — the "three-cell" model of atmospheric circulation.
@@ -66,25 +66,10 @@ export function windAt(
   yCell: number,
   yearPhase: number,
 ): WindVector {
-  const { width: w, height: h, factor } = result.windGrid;
-  const gx = Math.min(w - 1, Math.max(0, xCell / factor - 0.5));
-  const gy = Math.min(h - 1, Math.max(0, yCell / factor - 0.5));
-  const x0 = Math.floor(gx);
-  const y0 = Math.floor(gy);
-  const x1 = Math.min(w - 1, x0 + 1);
-  const y1 = Math.min(h - 1, y0 + 1);
-  const fx = gx - x0;
-  const fy = gy - y0;
-  const { m0, m1, f } = monthBlend(yearPhase);
-  const sample = (field: Float32Array, m: number) => {
-    const o = m * w * h;
-    const top = field[o + y0 * w + x0] * (1 - fx) + field[o + y0 * w + x1] * fx;
-    const bottom = field[o + y1 * w + x0] * (1 - fx) + field[o + y1 * w + x1] * fx;
-    return top * (1 - fy) + bottom * fy;
+  return {
+    uMs: sampleCoarseMonthly(result, result.windUMs, xCell, yCell, yearPhase),
+    vMs: sampleCoarseMonthly(result, result.windVMs, xCell, yCell, yearPhase),
   };
-  const u0 = sample(result.windUMs, m0);
-  const v0 = sample(result.windVMs, m0);
-  return { uMs: u0 + (sample(result.windUMs, m1) - u0) * f, vMs: v0 + (sample(result.windVMs, m1) - v0) * f };
 }
 
 const FROM_DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];

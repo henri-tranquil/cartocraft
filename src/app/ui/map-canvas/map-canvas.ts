@@ -54,8 +54,8 @@ const BACKGROUND = '#e2cfa6';
         @if (info.temperatureC !== null) {
           <span class="chip" title="Température à la saison affichée">{{ info.temperatureC | number: '1.0-0' }} °C</span>
         }
-        @if (info.humidityPct !== null) {
-          <span class="chip" title="Humidité relative de l’air à la saison affichée">HR {{ info.humidityPct | number: '1.0-0' }} %</span>
+        @if (info.precipitationMm !== null) {
+          <span class="chip" title="Précipitations (pluie ou neige) du mois affiché">{{ info.precipitationMm | number: '1.0-0' }} mm/mois</span>
         }
         @if (info.windLabel) {
           <span class="chip" title="Vent dominant (d’où il vient) et sa vitesse">vent {{ info.windLabel }}</span>
@@ -109,7 +109,7 @@ export class MapCanvas {
     this.facade.hasClimate();
     const wind = this.facade.windAt(point);
     const windLabel = wind ? `${windFromDirection(wind)} ${Math.hypot(wind.uMs, wind.vMs).toFixed(0)} m/s` : null;
-    return { xKm: point.x * km, yKm: point.y * km, altitudeM, temperatureC: this.facade.temperatureAt(point), humidityPct: this.facade.humidityAt(point), windLabel };
+    return { xKm: point.x * km, yKm: point.y * km, altitudeM, temperatureC: this.facade.temperatureAt(point), precipitationMm: this.facade.precipitationAt(point), windLabel };
   });
 
   protected readonly visibleWidthKm = computed(() => {

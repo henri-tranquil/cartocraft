@@ -119,3 +119,70 @@ export function advect(
     }
   }
 }
+
+/**
+ * After `advect` with a `limit` has converged: how much each cell had to
+ * remove to stay under the limit (the excess that condenses and falls).
+ */
+export function excessOverLimit(field: Float32Array, eq: Float32Array, step: AdvectionStep, limit: Float32Array, w: number, h: number): Float32Array {
+  const excess = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const c = y * w + x;
+      const mem = step.memory[c];
+      const arriving = mem > 0 ? eq[c] + (bilinear(field, w, h, x - step.dx[c], y - step.dy[c]) - eq[c]) * mem : eq[c];
+      excess[c] = Math.max(0, arriving - limit[c]);
+    }
+  }
+  return excess;
+}
+
+/** Maximum of a fine field over each coarse cell. */
+export function downsampleMax(fine: ArrayLike<number>, fineW: number, fineH: number, grid: CoarseGrid): Float32Array {
+  const max = new Float32Array(grid.width * grid.height).fill(-Infinity);
+  for (let y = 0; y < fineH; y++) {
+    const cy = Math.floor(y / grid.factor);
+    for (let x = 0; x < fineW; x++) {
+      const c = cy * grid.width + Math.floor(x / grid.factor);
+      if (fine[y * fineW + x] > max[c]) max[c] = fine[y * fineW + x];
+    }
+  }
+  return max;
+}
+
+/**
+ * Bilinear upsampling of a whole coarse field to the fine grid (same result
+ * as upsampleAt per cell). Interpolation weights are computed once per column
+ * and per row instead of per cell: this loop runs 12 × millions of times.
+ */
+export function upsampleInto(coarse: Float32Array, grid: CoarseGrid, fineW: number, fineH: number, out: Float32Array): void {
+  const cw = grid.width;
+  const axis = (n: number, coarseN: number) => {
+    const i0 = new Int32Array(n);
+    const i1 = new Int32Array(n);
+    const f = new Float32Array(n);
+    for (let k = 0; k < n; k++) {
+      const g = Math.min(coarseN - 1, Math.max(0, (k + 0.5) / grid.factor - 0.5));
+      i0[k] = Math.floor(g);
+      i1[k] = Math.min(coarseN - 1, i0[k] + 1);
+      f[k] = g - i0[k];
+    }
+    return { i0, i1, f };
+  };
+  const cols = axis(fineW, cw);
+  const rows = axis(fineH, grid.height);
+  for (let y = 0; y < fineH; y++) {
+    const r0 = rows.i0[y] * cw;
+    const r1 = rows.i1[y] * cw;
+    const fy = rows.f[y];
+    const o = y * fineW;
+    for (let x = 0; x < fineW; x++) {
+      const a = cols.i0[x];
+      const b = cols.i1[x];
+      const fx = cols.f[x];
+      const top = coarse[r0 + a] + (coarse[r0 + b] - coarse[r0 + a]) * fx;
+      const bottom = coarse[r1 + a] + (coarse[r1 + b] - coarse[r1 + a]) * fx;
+      out[o + x] = top + (bottom - top) * fy;
+    }
+  }
+}

@@ -9,7 +9,7 @@ import {
 } from '../../rendering/style/temperature-palette';
 import { Icon, IconName } from '../icon/icon';
 import { formatLatitude } from '../../domain/map/latitude';
-import { humidityLegendGradient } from '../../rendering/style/climate-palettes';
+import { precipitationLegendGradient } from '../../rendering/style/climate-palettes';
 
 const MONTH_NAMES = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 
@@ -17,7 +17,7 @@ const VIEWS: readonly { id: ViewMode; icon: IconName; label: string; title: stri
   { id: 'relief', icon: 'relief', label: 'Relief', title: 'Couleurs d’altitude (édition)' },
   { id: 'landscape', icon: 'tree', label: 'Paysage', title: 'Couleurs du climat : végétation, sécheresse, neige, banquise' },
   { id: 'temperature', icon: 'climate', label: 'Temp.', title: 'Températures à la saison choisie' },
-  { id: 'humidity', icon: 'water', label: 'Humid.', title: 'Humidité relative de l’air à la saison choisie' },
+  { id: 'precipitation', icon: 'water', label: 'Pluie', title: 'Précipitations du mois (pluie ou neige), mm/mois' },
   { id: 'wind', icon: 'wind', label: 'Vents', title: 'Vents dominants à la saison choisie (les flèches vont où va l’air)' },
 ];
 
@@ -111,10 +111,10 @@ function monthOf(phase: number): number {
         <span class="bar" [style.background]="legendGradient"></span>
         <div class="ticks"><span>{{ minC }}°</span><span>0°</span><span>+{{ maxC }}°</span></div>
       </div>
-    } @else if (facade.viewMode() === 'humidity') {
+    } @else if (facade.viewMode() === 'precipitation') {
       <div class="legend">
-        <span class="bar" [style.background]="humidityGradient"></span>
-        <div class="ticks"><span>sec 0 %</span><span>50 %</span><span>saturé</span></div>
+        <span class="bar" [style.background]="precipitationGradient"></span>
+        <div class="ticks"><span>0</span><span>100</span><span>250</span><span>500 mm</span></div>
       </div>
     } @else if (facade.viewMode() === 'landscape') {
       <p class="hint">Ocre = sec, vert = humide, brun = végétation en repos, blanc = neige ou banquise. Fais glisser la saison.</p>
@@ -166,7 +166,7 @@ export class ClimatePanel {
   protected readonly facade = inject(EditorFacade);
   protected readonly views = VIEWS;
   protected readonly legendGradient = temperatureLegendGradient();
-  protected readonly humidityGradient = humidityLegendGradient();
+  protected readonly precipitationGradient = precipitationLegendGradient();
   protected readonly minC = TEMPERATURE_PALETTE_MIN_C;
   protected readonly maxC = TEMPERATURE_PALETTE_MAX_C;
   protected readonly monthName = computed(() => MONTH_NAMES[monthOf(this.facade.yearPhase())]);
