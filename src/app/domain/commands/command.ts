@@ -18,6 +18,8 @@ export const NO_CHANGE: MapChange = { terrainTiles: [], metadata: false };
 export interface Command {
   /** French, shown in the UI (e.g. "Annuler : Renommer la carte"). */
   readonly label: string;
+  /** Approximate memory held by this command (for the history budget). Omit if negligible. */
+  readonly sizeBytes?: number;
   execute(map: WorldMap): MapChange;
   undo(map: WorldMap): MapChange;
 }

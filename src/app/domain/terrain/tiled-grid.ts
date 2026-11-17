@@ -93,3 +93,43 @@ export function tileIndicesInRect(grid: Int16TiledGrid, x0: number, y0: number, 
 export function allTileIndices(grid: Int16TiledGrid): number[] {
   return grid.tiles.map((_, i) => i);
 }
+
+/** Inclusive rectangle of cells. */
+export interface CellRect {
+  readonly x0: number;
+  readonly y0: number;
+  readonly x1: number;
+  readonly y1: number;
+}
+
+export function clipRect(grid: Int16TiledGrid, rect: CellRect): CellRect | null {
+  const x0 = Math.max(0, rect.x0);
+  const y0 = Math.max(0, rect.y0);
+  const x1 = Math.min(grid.widthCells - 1, rect.x1);
+  const y1 = Math.min(grid.heightCells - 1, rect.y1);
+  return x0 > x1 || y0 > y1 ? null : { x0, y0, x1, y1 };
+}
+
+export function expandRect(rect: CellRect, by: number): CellRect {
+  return { x0: rect.x0 - by, y0: rect.y0 - by, x1: rect.x1 + by, y1: rect.y1 + by };
+}
+
+/** Cells of a tile that lie inside the grid (edge tiles are partial). */
+export function tileRect(grid: Int16TiledGrid, tileIndex: number): CellRect {
+  const x0 = (tileIndex % grid.tilesX) * grid.tileSize;
+  const y0 = Math.floor(tileIndex / grid.tilesX) * grid.tileSize;
+  return {
+    x0,
+    y0,
+    x1: Math.min(grid.widthCells, x0 + grid.tileSize) - 1,
+    y1: Math.min(grid.heightCells, y0 + grid.tileSize) - 1,
+  };
+}
+
+/** Fast unchecked read with coordinates clamped to the grid (edges repeat). For filters and rendering. */
+export function getCellClamped(grid: Int16TiledGrid, x: number, y: number): number {
+  const cx = x < 0 ? 0 : x >= grid.widthCells ? grid.widthCells - 1 : x;
+  const cy = y < 0 ? 0 : y >= grid.heightCells ? grid.heightCells - 1 : y;
+  const size = grid.tileSize;
+  return grid.tiles[((cy / size) | 0) * grid.tilesX + ((cx / size) | 0)][(cy % size) * size + (cx % size)];
+}

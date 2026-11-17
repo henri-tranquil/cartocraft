@@ -52,7 +52,7 @@ const FIELDS: readonly FieldDef[] = [
             <input type="number" [step]="field.step" [value]="settings()[field.key]" (input)="setField(field.key, $event)" />
             <small>{{ field.unit }}</small>
             @if (field.key === 'seed') {
-              <button type="button" (click)="randomSeed()" title="Graine aléatoire">🎲</button>
+              <button type="button" class="cc-btn shape-sceau" (click)="randomSeed()" aria-label="Graine aléatoire" title="Graine aléatoire">⚄</button>
             }
           </label>
         }
@@ -69,20 +69,24 @@ const FIELDS: readonly FieldDef[] = [
         }
 
         <div class="actions">
-          <button type="button" (click)="close()">Annuler</button>
-          <button type="submit" [disabled]="errors().length > 0 || name().trim() === ''">Créer</button>
+          <button type="button" class="cc-btn cc-btn--text shape-tampon" (click)="close()">Annuler</button>
+          <button type="submit" class="cc-btn cc-btn--primary shape-tampon" [disabled]="errors().length > 0 || name().trim() === ''">Créer</button>
         </div>
       </form>
     </dialog>
   `,
   styles: `
-    dialog { border: 1px solid #c8b99a; border-radius: 6px; background: #faf5ea; min-width: 22rem; }
-    h2 { font-family: Georgia, serif; margin-top: 0; }
-    .field { display: grid; grid-template-columns: 11rem 7rem auto auto; gap: 0.5rem; align-items: center; margin: 0.35rem 0; }
-    .summary { font-weight: bold; }
-    .note { color: #7a6a50; font-style: italic; font-size: 0.9em; }
-    .errors { color: #a03020; }
-    .actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+    dialog { padding: 18px 20px; background: var(--cc-panel); color: var(--cc-ink); border: var(--cc-border-strong) solid var(--cc-ink); box-shadow: 5px 5px 0 var(--cc-ink); min-width: 22rem; }
+    dialog::backdrop { background: rgb(31 26 19 / 0.45); }
+    h2 { font-family: var(--cc-font-map); font-weight: normal; font-size: 24px; margin: 0 0 8px; }
+    .field { display: grid; grid-template-columns: 10rem 6.5rem auto auto; gap: 0.5rem; align-items: center; margin: 0.3rem 0; font-weight: 500; }
+    .field input { font: inherit; padding: 0.2rem 0.4rem; background: var(--cc-bg); color: inherit; border: var(--cc-border) solid var(--cc-ink); }
+    .field input:focus-visible { outline: 2px solid var(--cc-accent); outline-offset: 1px; }
+    .field .cc-btn { width: 28px; height: 28px; --cc-shadow: 2px; }
+    .summary { font-weight: 700; }
+    .note { color: var(--cc-muted); font-style: italic; font-size: 0.9em; }
+    .errors { color: var(--cc-danger); font-weight: 700; }
+    .actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 12px; }
   `,
 })
 export class NewMapDialog {

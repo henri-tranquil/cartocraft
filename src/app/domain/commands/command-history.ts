@@ -2,6 +2,8 @@ import { WorldMap } from '../map/world-map';
 import { Command, MapChange } from './command';
 
 export const DEFAULT_HISTORY_SIZE = 100;
+/** Terrain commands keep tile copies (256 KB per tile before+after): bound memory too. */
+export const DEFAULT_HISTORY_BYTES = 256 * 1024 * 1024;
 
 /**
  * Two stacks: `done` (undoable) and `undone` (redoable).
@@ -12,7 +14,12 @@ export class CommandHistory {
   private readonly done: Command[] = [];
   private readonly undone: Command[] = [];
 
-  constructor(private readonly maxEntries = DEFAULT_HISTORY_SIZE) {}
+  private totalBytes = 0;
+
+  constructor(
+    private readonly maxEntries = DEFAULT_HISTORY_SIZE,
+    private readonly maxBytes = DEFAULT_HISTORY_BYTES,
+  ) {}
 
   execute(command: Command, map: WorldMap): MapChange {
     const change = command.execute(map);
@@ -22,9 +29,14 @@ export class CommandHistory {
 
   /** Records a command whose effect is already applied (e.g. a brush stroke painted live). */
   record(command: Command): void {
-    this.done.push(command);
-    if (this.done.length > this.maxEntries) this.done.shift();
+    this.undone.forEach((c) => (this.totalBytes -= c.sizeBytes ?? 0));
     this.undone.length = 0;
+    this.done.push(command);
+    this.totalBytes += command.sizeBytes ?? 0;
+    // Drop the oldest entries, but always keep the latest one.
+    while (this.done.length > 1 && (this.done.length > this.maxEntries || this.totalBytes > this.maxBytes)) {
+      this.totalBytes -= this.done.shift()?.sizeBytes ?? 0;
+    }
   }
 
   undo(map: WorldMap): MapChange | null {
@@ -52,6 +64,7 @@ export class CommandHistory {
   }
 
   clear(): void {
+    this.totalBytes = 0;
     this.done.length = 0;
     this.undone.length = 0;
   }

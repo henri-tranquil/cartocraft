@@ -1,1 +1,184 @@
-/* You can add global styles to this file, and also import other style files */
+/*
+ * Cartocraft UI theme — "neo-brutalism on parchment" (palette C1 « Encre & ocre »).
+ * Thick ink borders, hard offset shadows, flat colour blocks, pictograms over text.
+ *
+ * Button shapes are a per-family signature:
+ *   tampon (square)  → sections, relief tools
+ *   sceau (round)    → file actions, undo/redo, hydrology (step 5)
+ *   galet (rounded)  → climate tools (step 4)
+ *   feuille (leaf)   → naming tools (step 6)
+ */
+:root {
+  --cc-bg: #e2cfa6;
+  --cc-panel: #f3e9d2;
+  --cc-ink: #1f1a13;
+  --cc-side: #1f1a13;
+  --cc-side-fg: #f3e9d2;
+  --cc-muted: #5e5038; /* ≥ 4.5:1 on --cc-bg, readable at 11px */
+  --cc-active: #2f6b5a;
+  --cc-active-fg: #f3e9d2;
+  --cc-accent: #e0a43a;
+  --cc-ok: #7fa66a;
+  --cc-danger: #b8432f;
+
+  --cc-border: 2px;
+  --cc-border-strong: 3px;
+  --cc-shadow: 3px;
+  --cc-radius-card: 0;
+
+  --cc-font-ui: 'Space Grotesk', system-ui, sans-serif;
+  --cc-font-map: 'IM Fell English SC', Georgia, serif;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  font-size: 14px;
+  background: var(--cc-bg);
+  color: var(--cc-ink);
+  font-family: var(--cc-font-ui);
+}
+
+/* --- Buttons --- */
+
+.cc-btn {
+  /* Explicit: <button> is border-box by default, but <label class="cc-btn"> is not. */
+  box-sizing: border-box;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0;
+  background: var(--cc-panel);
+  color: var(--cc-ink);
+  border: var(--cc-border) solid var(--cc-ink);
+  border-radius: var(--cc-radius, 0);
+  box-shadow: var(--cc-shadow) var(--cc-shadow) 0 var(--cc-ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 60ms ease-out,
+    box-shadow 60ms ease-out;
+}
+
+.cc-btn:hover:not(:disabled) {
+  background: var(--cc-accent);
+  transform: translate(-1px, -1px);
+  box-shadow: calc(var(--cc-shadow) + 1px) calc(var(--cc-shadow) + 1px) 0 var(--cc-ink);
+}
+
+/* Pressed (momentarily) or selected (toggle): the button sinks into its shadow. */
+.cc-btn:active:not(:disabled),
+.cc-btn[aria-pressed='true'],
+.cc-btn[aria-checked='true'] {
+  transform: translate(var(--cc-shadow), var(--cc-shadow));
+  box-shadow: none;
+}
+
+.cc-btn[aria-pressed='true'],
+.cc-btn[aria-checked='true'],
+.cc-btn[aria-pressed='true']:hover,
+.cc-btn[aria-checked='true']:hover {
+  background: var(--cc-active);
+  color: var(--cc-active-fg);
+}
+
+.cc-btn:disabled {
+  background: transparent;
+  color: var(--cc-muted);
+  border-style: dashed;
+  border-color: var(--cc-muted);
+  box-shadow: none;
+  cursor: default;
+}
+
+.cc-btn:focus-visible,
+.cc-nav-btn:focus-visible {
+  outline: 2px solid var(--cc-accent);
+  outline-offset: 2px;
+}
+
+.cc-btn--primary {
+  background: var(--cc-ink);
+  color: var(--cc-panel);
+  padding: 0.4rem 0.9rem;
+}
+
+.cc-btn--text {
+  padding: 0.4rem 0.9rem;
+}
+
+/* Buttons on the dark section bar. */
+.cc-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 2px;
+  width: 50px;
+  height: 46px;
+  padding: 0;
+  background: transparent;
+  color: var(--cc-side-fg);
+  font: inherit;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  border: var(--cc-border) solid var(--cc-side-fg);
+  border-radius: var(--cc-radius, 0);
+  cursor: pointer;
+}
+
+.cc-nav-btn[aria-current='page'] {
+  background: var(--cc-side-fg);
+  color: var(--cc-ink);
+  box-shadow: var(--cc-shadow) var(--cc-shadow) 0 var(--cc-active);
+}
+
+.cc-nav-btn:disabled {
+  color: var(--cc-muted);
+  border-style: dashed;
+  border-color: var(--cc-muted);
+  cursor: default;
+}
+
+.shape-tampon { --cc-radius: 0; }
+.shape-galet { --cc-radius: 14px; }
+.shape-sceau { --cc-radius: 999px; }
+.shape-feuille { --cc-radius: 4px 20px 4px 20px; }
+
+/* --- Surfaces & form controls --- */
+
+.cc-panel {
+  background: var(--cc-panel);
+  border: var(--cc-border) solid var(--cc-ink);
+}
+
+.cc-input {
+  font: inherit;
+  padding: 0.3rem 0.45rem;
+  background: var(--cc-panel);
+  color: var(--cc-ink);
+  border: var(--cc-border) solid var(--cc-ink);
+  border-radius: 0;
+}
+
+.cc-input:focus-visible {
+  outline: 2px solid var(--cc-accent);
+  outline-offset: 1px;
+}
+
+input[type='range'] {
+  accent-color: var(--cc-ink);
+}
+
+/* Short caption under/next to a pictogram: minimal text, but always some. */
+.cc-caption {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.2px;
+}

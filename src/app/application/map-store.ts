@@ -1,7 +1,7 @@
 import { computed, Injectable, signal } from '@angular/core';
 import { MapChange } from '../domain/commands/command';
 import { WorldMap } from '../domain/map/world-map';
-import { allTileIndices } from '../domain/terrain/tiled-grid';
+import { CellRect, tileRect } from '../domain/terrain/tiled-grid';
 
 /**
  * Holds the current map and notifies changes.
@@ -17,7 +17,8 @@ import { allTileIndices } from '../domain/terrain/tiled-grid';
 export class MapStore {
   private readonly currentMap = signal<WorldMap | null>(null);
   private readonly currentRevision = signal(0);
-  private readonly dirtyTiles = new Set<number>();
+  /** Areas the renderer must redraw. Consumed by a single reader (the canvas). */
+  private dirtyRects: CellRect[] = [];
 
   readonly map = this.currentMap.asReadonly();
   readonly revision = this.currentRevision.asReadonly();
@@ -28,24 +29,42 @@ export class MapStore {
   });
 
   setMap(map: WorldMap | null): void {
-    this.dirtyTiles.clear();
-    if (map) for (const i of allTileIndices(map.terrain.baseAltitudeM)) this.dirtyTiles.add(i);
+    const grid = map?.terrain.baseAltitudeM;
+    this.dirtyRects = grid ? [{ x0: 0, y0: 0, x1: grid.widthCells - 1, y1: grid.heightCells - 1 }] : [];
     this.currentMap.set(map);
-    this.currentRevision.update((r) => r + 1);
+    this.bump();
   }
 
+  /** Change from a command (execute / undo / redo). */
   applyChange(change: MapChange): void {
     const map = this.currentMap();
     if (!map) return;
-    for (const i of change.terrainTiles) this.dirtyTiles.add(i);
+    for (const tile of change.terrainTiles) this.dirtyRects.push(tileRect(map.terrain.baseAltitudeM, tile));
     map.updatedAt = new Date().toISOString();
-    this.currentRevision.update((r) => r + 1);
+    this.bump();
   }
 
-  /** For the renderer (step 3): returns tiles to redraw and resets the set. */
-  takeDirtyTiles(): number[] {
-    const tiles = [...this.dirtyTiles];
-    this.dirtyTiles.clear();
-    return tiles;
+  /** Live change during a gesture (not yet a command). */
+  markTerrainDirty(rect: CellRect): void {
+    this.dirtyRects.push(rect);
+    this.bump();
+  }
+
+  /** Ends a live gesture: its areas were already marked dirty; only the timestamp changes. */
+  touchMap(): void {
+    const map = this.currentMap();
+    if (!map) return;
+    map.updatedAt = new Date().toISOString();
+    this.bump();
+  }
+
+  takeDirtyRects(): CellRect[] {
+    const rects = this.dirtyRects;
+    this.dirtyRects = [];
+    return rects;
+  }
+
+  private bump(): void {
+    this.currentRevision.update((r) => r + 1);
   }
 }

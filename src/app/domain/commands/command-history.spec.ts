@@ -49,6 +49,18 @@ describe('CommandHistory', () => {
   });
 });
 
+describe('CommandHistory memory budget', () => {
+  it('drops the oldest commands when the byte budget is exceeded', () => {
+    const map = newMap();
+    const history = new CommandHistory(100, 250);
+    const heavy = (name: string) => Object.assign(new RenameMapCommand(name), { sizeBytes: 100 });
+    for (const name of ['A', 'B', 'C']) history.execute(heavy(name), map);
+    history.undo(map);
+    history.undo(map);
+    expect(history.undo(map)).toBeNull();
+  });
+});
+
 describe('TerrainEditCommand via TileChangeRecorder', () => {
   it('records only changed tiles and restores them on undo/redo', () => {
     const map = newMap();

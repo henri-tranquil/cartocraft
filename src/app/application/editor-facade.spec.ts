@@ -54,7 +54,7 @@ describe('EditorFacade', () => {
   it('creates a blank map, saves it immediately and marks all tiles dirty for rendering', async () => {
     await facade.createBlankMap({ ...DEFAULT_MAP_SETTINGS, widthKm: 600, heightKm: 300 }, 'Pangea');
     expect(facade.mapName()).toBe('Pangea');
-    expect(store.takeDirtyTiles().length).toBe(6);
+    expect(store.takeDirtyRects()).toEqual([{ x0: 0, y0: 0, x1: 599, y1: 299 }]);
     expect(facade.savedMaps().map((m) => m.name)).toEqual(['Pangea']);
   });
 
@@ -80,6 +80,46 @@ describe('EditorFacade', () => {
     await facade.deleteMap(id);
     expect(facade.hasMap()).toBe(false);
     expect(facade.savedMaps().map((m) => m.name)).toEqual(['A (copie)']);
+  });
+
+  it('paints a stroke live and undoes it as a single command', async () => {
+    await facade.createBlankMap(DEFAULT_MAP_SETTINGS, 'A');
+    store.takeDirtyRects();
+    facade.setBrush({ radiusKm: 10, strength: 1 });
+    facade.pointerDown({ x: 100, y: 100 });
+    facade.pointerMove({ x: 140, y: 100 });
+    expect(store.takeDirtyRects().length).toBeGreaterThan(1);
+    facade.pointerUp();
+    expect(facade.altitudeAt({ x: 120, y: 100 })).toBeGreaterThan(-200);
+    expect(facade.undoLabel()).toBe('Élever le relief');
+    facade.undo();
+    expect(facade.altitudeAt({ x: 120, y: 100 })).toBe(-200);
+  });
+
+  it('keeps applying while the pointer is held still (airbrush)', async () => {
+    vi.useFakeTimers();
+    try {
+      await facade.createBlankMap(DEFAULT_MAP_SETTINGS, 'A');
+      facade.setBrush({ radiusKm: 10, strength: 1 });
+      facade.pointerDown({ x: 100, y: 100 });
+      const afterFirstDab = facade.altitudeAt({ x: 100, y: 100 })!;
+      vi.advanceTimersByTime(1000);
+      expect(facade.altitudeAt({ x: 100, y: 100 })!).toBeGreaterThan(afterFirstDab + 300);
+      facade.pointerUp();
+      const released = facade.altitudeAt({ x: 100, y: 100 });
+      vi.advanceTimersByTime(1000);
+      expect(facade.altitudeAt({ x: 100, y: 100 })).toBe(released);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does nothing with the pan tool', async () => {
+    await facade.createBlankMap(DEFAULT_MAP_SETTINGS, 'A');
+    facade.selectTool('pan');
+    facade.pointerDown({ x: 100, y: 100 });
+    facade.pointerUp();
+    expect(facade.undoLabel()).toBeNull();
   });
 
   it('reports import errors without touching the open map', async () => {

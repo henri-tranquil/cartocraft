@@ -66,9 +66,9 @@ src/app/
 
 | Pattern | Où | Pourquoi |
 |---|---|---|
-| **Command** | `domain/commands` | Annuler/rétablir. Chaque édition est une commande `execute()/undo()`. Un coup de pinceau = **une** commande qui stocke le diff des tuiles touchées (avant/après), pas un snapshot complet. Historique borné (ex. 100 entrées). |
+| **Command** | `domain/commands` | Annuler/rétablir. Chaque édition est une commande `execute()/undo()`. Un coup de pinceau = **une** commande qui stocke le diff des tuiles touchées (avant/après), pas un snapshot complet. Historique borné à 100 entrées **et** 256 Mo (`Command.sizeBytes`). Un geste est peint en direct puis enregistré via `history.record()` (pas ré-exécuté). |
 | **Strategy** | `application/tools` | Les outils (`RaiseTerrain`, `LowerTerrain`, `Smooth`, `CarveValley`, `PlaceRiverSource`, `PlaceLabel`, `DrawRegion`, `Select`…) implémentent la même interface `EditorTool` (`onPointerDown/Move/Up`, curseur, options). |
-| **Pipeline / couches** | `rendering/layers` | Chaque couche (`OceanLayer`, `LandLayer`, `ReliefLayer`, `ForestLayer`, `HydroLayer`, `RegionLayer`, `LabelLayer`…) implémente `RenderLayer` avec une plage de zoom visible et dessine dans le contexte d'une tuile. L'ordre se définit dans un tableau, et on ajoute une couche sans toucher aux autres. |
+| **Pipeline / couches** | `rendering/layers` (à introduire quand il y aura ≥ 2 couches ; à l'étape 3, un seul `TerrainRaster`) | Chaque couche (`OceanLayer`, `LandLayer`, `ReliefLayer`, `ForestLayer`, `HydroLayer`, `RegionLayer`, `LabelLayer`…) implémente `RenderLayer` avec une plage de zoom visible et dessine dans le contexte d'une tuile. L'ordre se définit dans un tableau, et on ajoute une couche sans toucher aux autres. |
 | **Strategy (style)** | `rendering/style` | Un seul style pour l'instant (« carte illustrée »), mais derrière une interface `MapStyle` (palettes, sprites, typos). On n'en implémente **qu'un seul** : pas de sélecteur de style maintenant. |
 | **Repository + Adapter** | `domain/map/map-repository.ts` (ports) + `infrastructure/persistence` (adapters) | `MapRepository` (`save(map, changedTiles)`, `load`, `list`, `delete`) implémenté par `IndexedDbMapRepository`. Le fichier `.cartocraft` n'est **pas** un repository (ni liste ni suppression) : c'est un port `MapFileCodec` (`exportMap`, `importMap`). Les implémentations sont injectées via des `InjectionToken` (`application/ports.ts`) liés dans `app.config.ts`, pour que `application` ne dépende pas d'`infrastructure`. |
 | **Factory** | `domain/map` | `MapFactory.blank(settings)` et `MapFactory.fromNoise(settings, seed)` pour « Nouvelle carte ». |
@@ -176,11 +176,25 @@ Zoom sémantique, avec trois niveaux indicatifs (ajustables) :
 | **Région** | ~100–300 km | pictos de montagne individuels, forêts, fleuves principaux et secondaires, villes |
 | **Vallée** (zoom max) | ~10–30 km | pictos plus petits et plus denses, tous les cours d'eau, villages = point + nom, noms secondaires |
 
+- **Étape 3 (actuel)** : `TerrainRaster` garde un bitmap 1 pixel = 1 cellule par tuile de données, mis à jour par rectangles sales (`MapStore.takeDirtyRects`), sur le thread principal. Teintes hypsométriques + ombrage (lumière NO, exagération verticale ×4). Zoom avant affiché en pixels nets (pas de lissage), pour rester honnête sur la résolution des données jusqu'à l'étape 8.
 - **Rendu par tuiles** de taille fixe en pixels, calculées dans un Worker (`OffscreenCanvas`) et mises dans un **cache LRU**. Une édition invalide seulement les tuiles concernées.
 - Le placement des pictos est **déterministe** (graine + coordonnées de la tuile), sinon ils « sautent » à chaque rendu.
 - Les étiquettes sont dessinées dans une couche à part, au-dessus des tuiles (elles ne doivent pas être coupées par les bords de tuile), avec une gestion simple des collisions par importance.
 - Les **sprites** (montagnes, arbres, collines) sont dans des jeux remplaçables. On commence avec des pictos simples générés, puis on affine : c'est la partie visuelle la plus difficile, ne pas viser la perfection au premier jet.
 - Cadre, cartouche de titre, rose des vents et échelle : **plus tard**, au moment de l'export image.
+
+## Interface (chrome de l'éditeur)
+
+Style **néo-brutalisme sur parchemin**, palette « C1 Encre & ocre » (maquettes : https://claude.ai/artifact/EnBzBz4x8FrS3a2jhmYAPw).
+
+- Traits d'encre épais (3–4 px), ombres pleines décalées, aplats ; un bouton actif « s'enfonce » (perd son ombre).
+- **Peu de texte, des pictos, mais la compréhension d'abord** : chaque bouton porte un picto (`ui/icon/icon.ts`, SVG inline en `currentColor`) **et une légende courte** (`.cc-caption`, 1 mot). Seules exceptions : les symboles universels dans un espace très réduit (dupliquer, supprimer), qui gardent `aria-label` + bulle. Les bulles (`title`) donnent le détail et le raccourci clavier.
+- Mise en page « carnet » : barre de sections sombre à gauche (Cartes, Relief, puis Climat/Eaux/Noms à leur étape), panneau d'outils, carte encadrée.
+- Jetons et classes globales dans `src/styles.scss` (`--cc-*`, `.cc-btn`, `.cc-nav-btn`, `.cc-panel`). Pas de couleur en dur dans les composants.
+- **Forme des boutons = signature de la famille d'outils** : `shape-tampon` (sections, Relief), `shape-sceau` (actions fichier, annuler, Eaux), `shape-galet` (Climat), `shape-feuille` (Noms).
+- Polices : Space Grotesk (UI), IM Fell English SC (noms de lieux, titres).
+- Interface compacte : base 14 px, traits 2 px (`--cc-border`), 3 px pour les cadres (`--cc-border-strong`), ombres 3 px.
+- La vue (centre + zoom) est mémorisée **par carte** dans `localStorage` (`cartocraft:view:<id>`) : confort local, pas une donnée de carte ; bouton « recadrer » pour revenir à la vue d'ensemble.
 
 ## Persistance
 
@@ -210,7 +224,7 @@ Dépôt GitHub : **`cartocraft`**. L'interface sera publiée plus tard sur `http
 4. **Climat** : réglage des latitudes, vents, advection, effets orographiques, timeline des saisons, dégradés de couleur.
 5. **Hydrologie** : calcul automatique, outils source, passage et creusement, nommage.
 6. **Nommage** : régions, sommets, chaînes, mers, villages, étiquettes courbes, visibilité selon le zoom.
-7. **Style illustré** : pictos de montagnes et forêts, hachures de vagues, halo côtier, typo.
+7. **Style illustré** : pictos de montagnes et forêts, hachures de vagues, halo côtier, typo. Bouton **« Rendre la carte »** qui bascule entre la vue *édition* (teintes hypsométriques lisibles, actuelle) et la vue *rendu* (style illustré, accordé à la charte parchemin).
 8. **Niveaux de détail** : retouches haute résolution en quadtree, détail procédural, rendu par tuiles en Workers.
 9. **Export** image (PNG avec cadre, cartouche, rose, échelle) puis heightmap pour Godot.
 
@@ -232,6 +246,6 @@ Chaque étape doit être utilisable à la fin. Ne pas commencer l'étape suivant
 
 ## Questions ouvertes
 
-- Résolution de base et taille maximale réalistes, à valider par un test de performance à l'étape 3.
+- ~~Résolution de base et taille maximale réalistes~~ : **mesuré à l'étape 3** sur 2048² (V8) : touche de pinceau r=25 + rendu ≈ 0,4 ms ; r=200 ≈ 9 ms + 14 ms de rendu (limite) ; rendu complet ≈ 325 ms (ouverture) ; 6 ms par tuile entière (annuler). **2048² reste le maximum**, la limite pratique est le rayon du pinceau en cellules, pas la taille de la grille.
 - Faut-il des calques (plusieurs couches de noms, couches masquables) dès l'étape 6 ?
 - Format exact de l'export vers Godot : à définir quand le prototype Godot existera.

@@ -14,10 +14,16 @@ export interface TileDiff {
  * copy, so a stroke over 4 tiles weighs ~1 MB in history.
  */
 export class TerrainEditCommand implements Command {
+  readonly sizeBytes: number;
+  readonly tileIndices: readonly number[];
+
   constructor(
     readonly label: string,
     private readonly diffs: readonly TileDiff[],
-  ) {}
+  ) {
+    this.sizeBytes = diffs.reduce((sum, d) => sum + d.before.byteLength + d.after.byteLength, 0);
+    this.tileIndices = diffs.map((d) => d.tileIndex);
+  }
 
   execute(map: WorldMap): MapChange {
     return this.apply(map.terrain.baseAltitudeM, 'after');
@@ -29,7 +35,7 @@ export class TerrainEditCommand implements Command {
 
   private apply(grid: Int16TiledGrid, side: 'before' | 'after'): MapChange {
     for (const diff of this.diffs) grid.tiles[diff.tileIndex].set(diff[side]);
-    return { terrainTiles: this.diffs.map((d) => d.tileIndex), metadata: false };
+    return { terrainTiles: this.tileIndices, metadata: false };
   }
 }
 

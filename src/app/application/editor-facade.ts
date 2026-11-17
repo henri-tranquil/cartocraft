@@ -7,9 +7,33 @@ import { MapSummary } from '../domain/map/map-repository';
 import { MapSettings } from '../domain/map/map-settings';
 import { WorldMap } from '../domain/map/world-map';
 import { MapFormatError } from '../domain/serialization/map-document';
+import { CellPoint } from '../domain/terrain/brushes';
+import { CellRect, getCell, isInside } from '../domain/terrain/tiled-grid';
 import { AutoSave } from './auto-save';
 import { MapStore } from './map-store';
 import { MAP_FILE_CODEC, MAP_REPOSITORY } from './ports';
+import { EditorTool, ToolContext } from './tools/editor-tool';
+import {
+  BrushOptions,
+  LowerTerrainTool,
+  RaiseTerrainTool,
+  SmoothTerrainTool,
+} from './tools/terrain-brush-tools';
+
+/** 'pan' is a view-only mode handled by the canvas; the others are EditorTools. */
+export type ToolId = 'pan' | 'raise' | 'lower' | 'smooth';
+
+export const TOOL_LABELS: Record<ToolId, string> = {
+  pan: 'Déplacer',
+  raise: 'Élever',
+  lower: 'Abaisser',
+  smooth: 'Lisser',
+};
+
+/** Airbrush rate while the pointer is held (dabs per second). */
+export const HOLD_DABS_PER_SECOND = 15;
+
+export const BRUSH_LIMITS = { minRadiusKm: 1, maxRadiusKm: 200 } as const;
 
 export interface ExportedFile {
   readonly blob: Blob;
@@ -28,6 +52,16 @@ export class EditorFacade {
   private readonly historyRevision = signal(0);
   private readonly savedMapsState = signal<readonly MapSummary[]>([]);
   private readonly errorState = signal<string | null>(null);
+  private readonly brushState = signal<BrushOptions>({ radiusKm: 25, strength: 0.5 });
+  private readonly activeToolState = signal<ToolId>('raise');
+  private readonly tools: Record<Exclude<ToolId, 'pan'>, EditorTool> = {
+    raise: new RaiseTerrainTool(() => this.brushState()),
+    lower: new LowerTerrainTool(() => this.brushState()),
+    smooth: new SmoothTerrainTool(() => this.brushState()),
+  };
+  /** Tool of the gesture in progress (pointer down), if any. */
+  private gestureTool: EditorTool | null = null;
+  private holdTimer: ReturnType<typeof setInterval> | null = null;
 
   readonly hasMap = computed(() => this.store.map() !== null);
   readonly currentMapId = computed(() => this.store.map()?.id ?? null);
@@ -36,18 +70,12 @@ export class EditorFacade {
   readonly savedMaps = this.savedMapsState.asReadonly();
   readonly error = this.errorState.asReadonly();
   readonly fileExtension = this.fileCodec.fileExtension;
-  readonly mapSummary = computed(() => {
-    const map = this.store.map();
-    if (!map) return null;
-    const grid = map.terrain.baseAltitudeM;
-    return {
-      widthKm: map.settings.widthKm,
-      heightKm: map.settings.heightKm,
-      widthCells: grid.widthCells,
-      heightCells: grid.heightCells,
-      tileCount: grid.tiles.length,
-    };
-  });
+  readonly activeTool = this.activeToolState.asReadonly();
+  readonly brush = this.brushState.asReadonly();
+
+  // Read-only access for the renderer: rendering reads the model, never writes it.
+  readonly renderMap = this.store.map;
+  readonly renderRevision = this.store.revision;
   readonly undoLabel = computed(() => {
     this.historyRevision();
     return this.history.undoLabel;
@@ -130,6 +158,69 @@ export class EditorFacade {
     this.errorState.set(null);
   }
 
+  // --- Rendering support ---
+
+  takeDirtyRects(): CellRect[] {
+    return this.store.takeDirtyRects();
+  }
+
+  /** Altitude under a point, for the status bar; null outside the map. */
+  altitudeAt(point: CellPoint): number | null {
+    const grid = this.store.map()?.terrain.baseAltitudeM;
+    const x = Math.floor(point.x);
+    const y = Math.floor(point.y);
+    return grid && isInside(grid, x, y) ? getCell(grid, x, y) : null;
+  }
+
+  // --- Tools ---
+
+  selectTool(id: ToolId): void {
+    if (!this.gestureTool) this.activeToolState.set(id);
+  }
+
+  setBrush(options: Partial<BrushOptions>): void {
+    this.brushState.update((b) => ({
+      radiusKm: clamp(options.radiusKm ?? b.radiusKm, BRUSH_LIMITS.minRadiusKm, BRUSH_LIMITS.maxRadiusKm),
+      strength: clamp(options.strength ?? b.strength, 0, 1),
+    }));
+  }
+
+  pointerDown(point: CellPoint): void {
+    const id = this.activeToolState();
+    const ctx = this.toolContext();
+    if (id === 'pan' || !ctx || this.gestureTool) return;
+    const tool = this.tools[id];
+    this.gestureTool = tool;
+    tool.begin(ctx, point);
+    if (tool.hold) {
+      this.holdTimer = setInterval(() => {
+        const current = this.toolContext();
+        if (current) tool.hold?.(current);
+      }, 1000 / HOLD_DABS_PER_SECOND);
+    }
+  }
+
+  pointerMove(point: CellPoint): void {
+    const ctx = this.toolContext();
+    if (this.gestureTool && ctx) this.gestureTool.move(ctx, point);
+  }
+
+  pointerUp(): void {
+    const ctx = this.toolContext();
+    const tool = this.gestureTool;
+    this.gestureTool = null;
+    if (this.holdTimer !== null) clearInterval(this.holdTimer);
+    this.holdTimer = null;
+    if (!tool || !ctx) return;
+    const result = tool.end(ctx);
+    if (!result) return;
+    // Already applied (and redrawn) live: record it without executing it again.
+    this.history.record(result.command);
+    this.store.touchMap();
+    this.autoSave.markChanged(result.change.terrainTiles, result.change.metadata);
+    this.historyRevision.update((r) => r + 1);
+  }
+
   // --- Editing ---
 
   renameMap(name: string): void {
@@ -139,11 +230,13 @@ export class EditorFacade {
   }
 
   undo(): void {
+    if (this.gestureTool) return; // never undo in the middle of a stroke
     const map = this.store.map();
     if (map) this.afterHistoryOp(this.history.undo(map));
   }
 
   redo(): void {
+    if (this.gestureTool) return;
     const map = this.store.map();
     if (map) this.afterHistoryOp(this.history.redo(map));
   }
@@ -163,6 +256,11 @@ export class EditorFacade {
   }
 
   // --- Helpers ---
+
+  private toolContext(): ToolContext | null {
+    const map = this.store.map();
+    return map ? { map, markTerrainDirty: (rect) => this.store.markTerrainDirty(rect) } : null;
+  }
 
   private async openLoaded(map: WorldMap): Promise<void> {
     await this.autoSave.flush(); // never lose the previous map's pending edits
@@ -191,4 +289,8 @@ export class EditorFacade {
       this.errorState.set(error instanceof MapFormatError ? error.message : 'Une erreur inattendue est survenue.');
     }
   }
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
