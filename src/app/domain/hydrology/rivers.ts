@@ -48,30 +48,29 @@ export function computeHydrology(
   altitudeM: Int16Array,
   widthCells: number,
   heightCells: number,
-  seaLevelM: number,
+  sea: Uint8Array,
   cellKm: number,
   runoffMm: Float32Array,
 ): HydrologyResult {
   const n = widthCells * heightCells;
-  const drainage = computeDrainage(altitudeM, widthCells, heightCells, seaLevelM);
+  const drainage = computeDrainage(altitudeM, widthCells, heightCells, sea);
   const m3sPerMm = (cellKm * cellKm * 1000) / SECONDS_PER_YEAR;
   const yieldM3s = new Float32Array(n);
-  for (let i = 0; i < n; i++) if (altitudeM[i] > seaLevelM) yieldM3s[i] = runoffMm[i] * m3sPerMm;
+  for (let i = 0; i < n; i++) if (!sea[i]) yieldM3s[i] = runoffMm[i] * m3sPerMm;
   const discharge = accumulateFlow(drainage, yieldM3s);
-  const rivers = extractRivers(drainage.receiver, discharge, altitudeM, seaLevelM, widthCells);
+  const rivers = extractRivers(drainage.receiver, discharge, sea, widthCells);
   return { widthCells, heightCells, dischargeM3s: discharge, rivers };
 }
 
 export function extractRivers(
   receiver: Int32Array,
   discharge: Float32Array,
-  altitudeM: Int16Array,
-  seaLevelM: number,
+  sea: Uint8Array,
   widthCells: number,
   minDischargeM3s = MIN_RIVER_DISCHARGE_M3S,
 ): RiverNetwork {
   const n = receiver.length;
-  const isRiver = (i: number) => discharge[i] >= minDischargeM3s && altitudeM[i] > seaLevelM;
+  const isRiver = (i: number) => discharge[i] >= minDischargeM3s && !sea[i];
 
   // For each river cell: its biggest river tributary (−1 = none: a spring).
   const mainUp = new Int32Array(n).fill(-1);
@@ -101,7 +100,7 @@ export function extractRivers(
       const r = receiver[cell];
       if (r === NO_RECEIVER) break; // leaves the map
       if (!isRiver(r)) {
-        if (altitudeM[r] <= seaLevelM) push(r, discharge[cell]); // the mouth, on the shore
+        if (sea[r]) push(r, discharge[cell]); // the mouth, on the shore
         break;
       }
       if (mainUp[r] !== cell) {

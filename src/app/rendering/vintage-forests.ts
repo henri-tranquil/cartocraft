@@ -25,7 +25,7 @@ export const TREE_STRIDE = 5;
  */
 export function placeForests(input: MountainInput, climate: VintageClimate | null, level = 0): Float32Array<ArrayBuffer> {
   if (!climate) return new Float32Array(0);
-  const { altitudeM, widthCells: w, heightCells: h, seaLevelM, seed } = input;
+  const { widthCells: w, heightCells: h, sea, seed } = input;
   const mountainW = mountainWidthCells(w, h, level);
   const radius = Math.max(1, Math.round(mountainW / 2));
   const treeW = Math.max(1, mountainW * VINTAGE.treeWidthRatio);
@@ -42,7 +42,7 @@ export function placeForests(input: MountainInput, climate: VintageClimate | nul
       const cy = Math.floor(y);
       if (cx >= w || cy >= h) continue;
       const i = cy * w + cx;
-      if (altitudeM[i] <= seaLevelM) continue;
+      if (sea[i]) continue;
 
       const patch = smoothstep(VINTAGE.forestPatchFrom, VINTAGE.forestPatchTo, fbm(seed ^ 0x7c33, x * patchScale, y * patchScale, 3));
       const wet = smoothstep(VINTAGE.forestDryPct, VINTAGE.forestWetPct, climate.wetnessPct[i]);

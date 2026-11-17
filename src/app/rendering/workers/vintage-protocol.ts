@@ -4,7 +4,8 @@ import { VintageInput } from '../vintage-pixels';
 export interface VintageBuildRequest {
   readonly kind: 'build';
   readonly requestId: number;
-  readonly input: VintageInput;
+  /** The sea mask is derived in the worker. */
+  readonly input: Omit<VintageInput, 'sea'>;
 }
 
 export type VintageWorkerRequest = VintageBuildRequest;

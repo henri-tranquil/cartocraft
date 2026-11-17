@@ -1,3 +1,4 @@
+import { computeSeaMask } from '../terrain/sea-mask';
 import { computeHydrology, findRiverPoint, lineCount, RiverNetwork } from './rivers';
 
 /**
@@ -12,6 +13,8 @@ function valley(w = 21, h = 30): Int16Array {
   return a;
 }
 
+const seaOf = (w: number, h: number) => computeSeaMask(valley(w, h), w, h, 0);
+
 function line(network: RiverNetwork, k: number): { x: number; y: number; q: number }[] {
   const out = [];
   for (let p = network.starts[k]; p < network.starts[k + 1]; p++) {
@@ -25,7 +28,7 @@ describe('computeHydrology', () => {
     const w = 21;
     const h = 30;
     const runoff = new Float32Array(w * h).fill(1000);
-    const result = computeHydrology(valley(w, h), w, h, 0, 1, runoff);
+    const result = computeHydrology(valley(w, h), w, h, seaOf(w, h), 1, runoff);
     const perCell = (1000 * 1000) / (365.25 * 86400);
     // The valley floor just above the sea collects (almost) the whole land.
     const mouth = (h - 3) * w + 10;
@@ -37,7 +40,7 @@ describe('computeHydrology', () => {
     const h = 30;
     // Enough runoff for rivers everywhere on the valley floor.
     const runoff = new Float32Array(w * h).fill(20000);
-    const { rivers } = computeHydrology(valley(w, h), w, h, 0, 1, runoff);
+    const { rivers } = computeHydrology(valley(w, h), w, h, seaOf(w, h), 1, runoff);
     expect(lineCount(rivers)).toBeGreaterThan(0);
     // The line with the largest flow reaches the sea row on the central column.
     let main = 0;
@@ -54,14 +57,14 @@ describe('computeHydrology', () => {
   it('makes no river where it never rains', () => {
     const w = 21;
     const h = 30;
-    const { rivers } = computeHydrology(valley(w, h), w, h, 0, 1, new Float32Array(w * h));
+    const { rivers } = computeHydrology(valley(w, h), w, h, seaOf(w, h), 1, new Float32Array(w * h));
     expect(lineCount(rivers)).toBe(0);
   });
 
   it('finds the river point nearest to a click', () => {
     const w = 21;
     const h = 30;
-    const { rivers } = computeHydrology(valley(w, h), w, h, 0, 1, new Float32Array(w * h).fill(20000));
+    const { rivers } = computeHydrology(valley(w, h), w, h, seaOf(w, h), 1, new Float32Array(w * h).fill(20000));
     const hit = findRiverPoint(rivers, 10.5, 15.2, 2);
     expect(hit).not.toBeNull();
     expect(rivers.pointsCells[2 * hit!.point]).toBe(10.5);

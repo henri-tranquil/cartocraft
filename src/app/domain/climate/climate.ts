@@ -1,4 +1,5 @@
 import { EDGES_CONTINUE } from '../map/map-settings';
+import { computeSeaMask } from '../terrain/sea-mask';
 import { advect, AdvectionStep, climbAlongWind, downsampleMax, downsampleMean, excessOverLimit, upsampleInto } from './advection';
 import { climateDomainFor, cropToMap, padField } from './climate-domain';
 import { ClimateInput, ClimateResult, MONTHS, monthMidPhase, rowLatitudeDeg, TEMPERATURE_SCALE } from './climate-model';
@@ -57,7 +58,10 @@ const LATENT_SHARE_AT_SURFACE = 0.3;
  * 5. soil wetness = rain vs. potential evaporation, for vegetation colours;
  * 6. snowpack = snowfall minus melt, month after month.
  */
-export function computeClimate(input: ClimateInput): ClimateResult {
+export function computeClimate(
+  input: ClimateInput,
+  sea: Uint8Array = computeSeaMask(input.altitudeM, input.widthCells, input.heightCells, input.seaLevelM),
+): ClimateResult {
   const { widthCells: w, heightCells: h, altitudeM, seaLevelM, axialTiltDeg } = input;
   const size = w * h;
 
@@ -71,7 +75,7 @@ export function computeClimate(input: ClimateInput): ClimateResult {
   const seaFine = new Uint8Array(size);
   const landHeight = new Float32Array(size);
   for (let i = 0; i < size; i++) {
-    seaFine[i] = altitudeM[i] <= seaLevelM ? 1 : 0;
+    seaFine[i] = sea[i];
     landHeight[i] = Math.max(0, altitudeM[i] - seaLevelM);
   }
   const edges = input.beyondEdges ?? EDGES_CONTINUE;
@@ -235,10 +239,11 @@ export function computeClimate(input: ClimateInput): ClimateResult {
       for (let x = 0; x < w; x++) {
         const i = y * w + x;
         const height = altitudeM[i] - seaLevelM;
-        const localC = height > 0 ? landT - height * LAPSE_RATE_C_PER_M : seaT;
+        // Inland land below sea level (a depression) gets warmer, not sea temperatures.
+        const localC = sea[i] ? seaT : landT - height * LAPSE_RATE_C_PER_M;
         const t = Math.round((localC + fineDelta[i]) * TEMPERATURE_SCALE);
         temperatureDeciC[offset + i] = t;
-        if (height <= 0) continue; // sea: no soil, no snowpack
+        if (sea[i]) continue; // sea: no soil, no snowpack
         // Soil remembers: this month's rain averaged with the previous month's.
         const rain = (fineRain[i] + previousRain[i]) / 2;
         const pet = potentialEvaporationMm(t / TEMPERATURE_SCALE);

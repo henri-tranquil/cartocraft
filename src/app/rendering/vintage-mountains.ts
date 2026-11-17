@@ -12,6 +12,8 @@ export interface MountainInput {
   readonly widthCells: number;
   readonly heightCells: number;
   readonly seaLevelM: number;
+  /** 1 = sea (computeSeaMask): inland cells below sea level are land. */
+  readonly sea: Uint8Array;
   readonly seed: number;
 }
 
@@ -37,7 +39,7 @@ export interface MountainInput {
  * so zooming in shows more, smaller mountains instead of giant ones.
  */
 export function placeMountains(input: MountainInput, level = 0): Float32Array<ArrayBuffer> {
-  const { altitudeM, widthCells: w, heightCells: h, seaLevelM, seed } = input;
+  const { widthCells: w, heightCells: h, sea, seed } = input;
   const glyphW = mountainWidthCells(w, h, level);
   const salt = level * 0x9e37;
   const spacing = glyphW * VINTAGE.mountainSpacing;
@@ -48,7 +50,7 @@ export function placeMountains(input: MountainInput, level = 0): Float32Array<Ar
     for (let gx = 0; gx * spacing < w; gx++) {
       let cx = Math.floor((gx + hash2(seed ^ 0x1f3a ^ salt, gx, gy)) * spacing);
       let cy = Math.floor((gy + hash2(seed ^ 0x2b7c ^ salt, gx, gy)) * spacing);
-      if (cx >= w || cy >= h || altitudeM[cy * w + cx] <= seaLevelM) continue;
+      if (cx >= w || cy >= h || sea[cy * w + cx]) continue;
 
       const site = mountainSite(input, cx, cy, radius);
       const score = site.score;
@@ -64,7 +66,7 @@ export function placeMountains(input: MountainInput, level = 0): Float32Array<Ar
       // The glyph must not stand in the sea.
       const bx = Math.min(w - 1, Math.round(cx));
       const by = Math.min(h - 1, Math.round(baseY));
-      if (altitudeM[by * w + bx] <= seaLevelM) continue;
+      if (sea[by * w + bx]) continue;
       glyphs.push([cx, baseY, size, height, hash2(seed ^ 0x5a1b ^ salt, gx, gy)]);
     }
   }

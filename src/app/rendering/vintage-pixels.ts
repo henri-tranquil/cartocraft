@@ -9,6 +9,8 @@ export interface VintageInput {
   readonly widthCells: number;
   readonly heightCells: number;
   readonly seaLevelM: number;
+  /** 1 = sea (computeSeaMask): inland cells below sea level are land. */
+  readonly sea: Uint8Array;
   readonly cellSizeM: number;
   readonly seed: number;
   /** Yearly climate summaries; null until the first climate run (plain parchment). */
@@ -27,14 +29,10 @@ export interface VintageInput {
  * are too cold for trees), the parchment still showing through.
  */
 export function renderVintagePixels(input: VintageInput, out: Uint8ClampedArray): void {
-  const { altitudeM, widthCells: w, heightCells: h, seaLevelM, seed } = input;
+  const { widthCells: w, heightCells: h, sea, seed } = input;
   const n = w * h;
   const land = new Uint8Array(n);
-  const sea = new Uint8Array(n);
-  for (let i = 0; i < n; i++) {
-    if (altitudeM[i] > seaLevelM) land[i] = 1;
-    else sea[i] = 1;
-  }
+  for (let i = 0; i < n; i++) land[i] = 1 - sea[i];
   const toSea = chamferDistance(land, w, h); // on land: cells to the nearest sea
   const toLand = chamferDistance(sea, w, h); // at sea: cells to the nearest land
 

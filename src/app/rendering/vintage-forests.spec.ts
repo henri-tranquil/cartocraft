@@ -3,7 +3,7 @@ import { placeForests, TREE_STRIDE } from './vintage-forests';
 import { VintageClimate } from './vintage-climate';
 
 const W = 300;
-const input = { altitudeM: new Int16Array(W * W).fill(100), widthCells: W, heightCells: W, seaLevelM: 0, seed: 3 };
+const input = { altitudeM: new Int16Array(W * W).fill(100), widthCells: W, heightCells: W, seaLevelM: 0, sea: new Uint8Array(W * W), seed: 3 };
 
 function climate(wetnessPct: number, meanC: number, warmestC: number): VintageClimate {
   return {

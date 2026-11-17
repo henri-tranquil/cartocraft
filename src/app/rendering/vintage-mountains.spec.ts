@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GLYPH_STRIDE, placeMountains } from './vintage-mountains';
+import { computeSeaMask } from '../domain/terrain/sea-mask';
 
 /** 200 × 200 map: sea on the left half, a rugged range (sharp 2500 m ridges) on the right. */
 function testMap(): Int16Array {
@@ -14,7 +15,8 @@ function testMap(): Int16Array {
 }
 
 describe('placeMountains', () => {
-  const input = { altitudeM: testMap(), widthCells: 200, heightCells: 200, seaLevelM: 0, seed: 7 };
+  const altitudeM = testMap();
+  const input = { altitudeM, widthCells: 200, heightCells: 200, seaLevelM: 0, sea: computeSeaMask(altitudeM, 200, 200, 0), seed: 7 };
 
   it('puts glyphs on the range only, sorted back to front', () => {
     const glyphs = placeMountains(input);

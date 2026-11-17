@@ -50,18 +50,19 @@ const DY = [0, 0, 1, -1, 1, -1, 1, -1];
 
 /**
  * @param altitudeM row-major altitudes, `widthCells × heightCells`.
- * @param seaLevelM cells at or below it are sea (same rule as the renderers).
+ * @param sea 1 = sea cell (see computeSeaMask). Inland cells below sea level
+ *   are land: filled like any pit, they become lakes, not outlets.
  */
 export function computeDrainage(
   altitudeM: Int16Array,
   widthCells: number,
   heightCells: number,
-  seaLevelM: number,
+  sea: Uint8Array,
 ): Drainage {
   const w = widthCells;
   const h = heightCells;
   const n = w * h;
-  if (altitudeM.length !== n) throw new RangeError(`Expected ${n} altitudes, got ${altitudeM.length}`);
+  if (altitudeM.length !== n || sea.length !== n) throw new RangeError(`Expected ${n} cells, got ${altitudeM.length} altitudes, ${sea.length} sea flags`);
 
   const filledM = new Int16Array(altitudeM);
   const receiver = new Int32Array(n).fill(NO_RECEIVER);
@@ -86,7 +87,7 @@ export function computeDrainage(
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
       const onFrame = x === 0 || y === 0 || x === w - 1 || y === h - 1;
-      if (onFrame || altitudeM[i] <= seaLevelM) {
+      if (onFrame || sea[i]) {
         visited[i] = 1;
         push(i, altitudeM[i]);
       }

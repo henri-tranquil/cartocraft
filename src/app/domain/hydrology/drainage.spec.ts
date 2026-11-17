@@ -1,4 +1,5 @@
 import { accumulateFlow, computeDrainage, NO_RECEIVER } from './drainage';
+import { computeSeaMask } from '../terrain/sea-mask';
 
 /** Builds a row-major Int16 grid from rows of altitudes. */
 function grid(rows: number[][]): { altitudeM: Int16Array; w: number; h: number } {
@@ -16,7 +17,7 @@ describe('computeDrainage', () => {
       [9, 5, 5, 5, 9],
       [9, 9, 3, 9, 9],
     ]);
-    const d = computeDrainage(altitudeM, w, h, -100);
+    const d = computeDrainage(altitudeM, w, h, computeSeaMask(altitudeM, w, h, -100));
     // The basin spills over the rim cell at altitude 3: interior filled to 5 (its own floor), pit 1 → 5.
     expect(d.filledM[2 * w + 2]).toBe(5);
     expect(d.filledM[1 * w + 1]).toBe(5);
@@ -31,7 +32,7 @@ describe('computeDrainage', () => {
       [0, 8, 6, 8, 0],
       [0, 0, 0, 0, 0],
     ]);
-    const d = computeDrainage(altitudeM, w, h, 0);
+    const d = computeDrainage(altitudeM, w, h, computeSeaMask(altitudeM, w, h, 0));
     // Lowest rim cell is 6: the lake surface sits at 6, 4 m deep.
     expect(d.filledM[2 * w + 2]).toBe(6);
     expect(d.receiver[2 * w + 2]).toBe(3 * w + 2);
@@ -43,7 +44,7 @@ describe('computeDrainage', () => {
       [-5, 1, 2, 3],
       [-5, 1, 2, 3],
     ]);
-    const d = computeDrainage(altitudeM, w, h, 0);
+    const d = computeDrainage(altitudeM, w, h, computeSeaMask(altitudeM, w, h, 0));
     expect(d.receiver[0]).toBe(NO_RECEIVER);
     expect(d.receiver[w + 3]).toBe(NO_RECEIVER); // frame
     expect(altitudeM[d.receiver[w + 1]]).toBeLessThanOrEqual(0); // (1,1) drains into the sea
@@ -59,7 +60,7 @@ describe('computeDrainage', () => {
         altitudeM[y * w + x] = Math.round(300 - Math.hypot(x - 20, y - 15) * 12 + 40 * Math.sin(x * 1.3) * Math.cos(y * 0.9));
       }
     }
-    const d = computeDrainage(altitudeM, w, h, 0);
+    const d = computeDrainage(altitudeM, w, h, computeSeaMask(altitudeM, w, h, 0));
     const position = new Int32Array(w * h).fill(-1);
     d.order.forEach((cell, k) => (position[cell] = k));
     for (let i = 0; i < w * h; i++) {
@@ -82,7 +83,7 @@ describe('accumulateFlow', () => {
       [-1, 1, 2, 3, 9],
       [9, 9, 9, 9, 9],
     ]);
-    const d = computeDrainage(altitudeM, w, h, 0);
+    const d = computeDrainage(altitudeM, w, h, computeSeaMask(altitudeM, w, h, 0));
     const acc = accumulateFlow(d, new Float32Array(w * h).fill(1));
     // (3,1) → (2,1) → (1,1) → sea; frame cells are outlets of their own.
     expect(d.receiver[w + 3]).toBe(w + 2);
@@ -95,7 +96,7 @@ describe('accumulateFlow', () => {
     const h = 25;
     const altitudeM = new Int16Array(w * h);
     for (let i = 0; i < w * h; i++) altitudeM[i] = (i * 7919) % 500;
-    const d = computeDrainage(altitudeM, w, h, 0);
+    const d = computeDrainage(altitudeM, w, h, computeSeaMask(altitudeM, w, h, 0));
     const acc = accumulateFlow(d, new Float32Array(w * h).fill(1));
     let atOutlets = 0;
     for (let i = 0; i < w * h; i++) if (d.receiver[i] === NO_RECEIVER) atOutlets += acc[i];

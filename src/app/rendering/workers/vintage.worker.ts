@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 import { contourSegments } from '../../domain/terrain/contour';
+import { computeSeaMask } from '../../domain/terrain/sea-mask';
 import { renderVintagePixels } from '../vintage-pixels';
 import { MOUNTAIN_LEVELS, placeMountains } from '../vintage-mountains';
 import { placeForests } from '../vintage-forests';
@@ -12,11 +13,14 @@ addEventListener('message', (event: MessageEvent<VintageWorkerRequest>) => {
     case 'build': {
       const start = performance.now();
       try {
-        const { input } = request;
+        const sea = computeSeaMask(request.input.altitudeM, request.input.widthCells, request.input.heightCells, request.input.seaLevelM);
+        const input = { ...request.input, sea };
         const pixels = new Uint8ClampedArray(input.widthCells * input.heightCells * 4);
         renderVintagePixels(input, pixels);
         // Integer altitudes: +0.5 puts the line between the last sea and the first land value.
-        const coast = contourSegments(input.altitudeM, input.widthCells, input.heightCells, input.seaLevelM + 0.5);
+        // Inland depressions are lifted above that level: no coastline around them.
+        const coastField = input.altitudeM.map((a, i) => (sea[i] ? a : Math.max(a, input.seaLevelM + 1)));
+        const coast = contourSegments(coastField, input.widthCells, input.heightCells, input.seaLevelM + 0.5);
         const mountains = Array.from({ length: MOUNTAIN_LEVELS }, (_, level) => placeMountains(input, level));
         const forests = Array.from({ length: MOUNTAIN_LEVELS }, (_, level) => placeForests(input, input.climate, level));
         const response: VintageWorkerResponse = {
