@@ -15,7 +15,7 @@ import { AutoSave } from './auto-save';
 import { ClimateService } from './climate';
 import { SampleMaps } from './sample-maps';
 import { windAt, WindVector } from '../domain/climate/wind';
-import { ClimateResult, precipitationAtMm, temperatureAtC } from '../domain/climate/climate-model';
+import { ClimateResult, precipitationAtMm, snowDepthAtCm, temperatureAtC } from '../domain/climate/climate-model';
 import { MapStore } from './map-store';
 import { MAP_FILE_CODEC, MAP_REPOSITORY } from './ports';
 import { EditorTool, ToolContext } from './tools/editor-tool';
@@ -78,6 +78,8 @@ export class EditorFacade {
   private readonly activeToolState = signal<ToolId>('raise');
   /** False while a non-editing panel (maps, climate) is shown: the map can only be panned. */
   private readonly editingEnabledState = signal(true);
+  /** Axial tilt being dragged on the map (tropic / polar circle), before it is committed. */
+  private readonly tiltPreviewState = signal<number | null>(null);
   /** Two pins while the latitude ruler is being set up; null otherwise. */
   private readonly latitudePinsState = signal<readonly [LatitudePin, LatitudePin] | null>(null);
   private readonly tools: Record<Exclude<ToolId, 'pan'>, EditorTool> = {
@@ -102,6 +104,8 @@ export class EditorFacade {
     this.store.revision();
     return this.store.map()?.settings ?? null;
   });
+  /** Tilt shown by the ruler: the one being dragged, else the map's own. */
+  readonly displayedTilt = computed(() => this.tiltPreviewState() ?? this.settings()?.axialTiltDeg ?? null);
   /** Edges implied by the pins being dragged (preview), else the map's own. */
   readonly displayedLatitudes = computed(() => {
     const map = this.store.map();
@@ -250,6 +254,16 @@ export class EditorFacade {
     return temperatureAtC(result, y * result.widthCells + x, this.yearPhaseState());
   }
 
+  /** Snow depth under a point at the current season, cm; null if unknown. */
+  snowAt(point: CellPoint): number | null {
+    const result = this.climate.result();
+    if (!result) return null;
+    const x = Math.floor(point.x);
+    const y = Math.floor(point.y);
+    if (x < 0 || y < 0 || x >= result.widthCells || y >= result.heightCells) return null;
+    return snowDepthAtCm(result, y * result.widthCells + x, this.yearPhaseState());
+  }
+
   /** Precipitation under a point at the current season, mm/month; null if unknown. */
   precipitationAt(point: CellPoint): number | null {
     const result = this.climate.result();
@@ -326,6 +340,35 @@ export class EditorFacade {
     }
     this.errorState.set(null);
     this.execute(new UpdateSettingsCommand('Régler les latitudes', patch));
+  }
+
+  /** Live drag of a tropic or polar circle: preview only. */
+  previewTilt(axialTiltDeg: number): void {
+    this.tiltPreviewState.set(Math.round(Math.min(MAX_TILT_DEG, Math.max(0, axialTiltDeg)) * 10) / 10);
+  }
+
+  commitTiltPreview(): void {
+    const tilt = this.tiltPreviewState();
+    this.tiltPreviewState.set(null);
+    if (tilt !== null) this.updateClimateSettings({ axialTiltDeg: tilt });
+  }
+
+  // --- Planet settings ---
+
+  /** Axial tilt and global temperature offset, as one undoable command (then the climate recomputes). */
+  updateClimateSettings(patch: Partial<Pick<MapSettings, 'axialTiltDeg' | 'globalTemperatureOffsetC'>>): void {
+    const map = this.store.map();
+    if (!map) return;
+    const changed = (Object.keys(patch) as (keyof typeof patch)[]).some((k) => patch[k] !== undefined && patch[k] !== map.settings[k]);
+    if (!changed) return;
+    const errors = validateMapSettings({ ...map.settings, ...patch });
+    if (errors.length > 0) {
+      this.errorState.set(errors.join(' '));
+      return;
+    }
+    this.errorState.set(null);
+    const label = patch.axialTiltDeg !== undefined ? 'Régler l’inclinaison de l’axe' : 'Régler la température globale';
+    this.execute(new UpdateSettingsCommand(label, patch));
   }
 
   // --- Tools ---
@@ -474,6 +517,9 @@ export class EditorFacade {
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
+
+/** Beyond ~60° the "tropics" pass the polar circles: seasons become extreme and the model leaves its calibration. */
+export const MAX_TILT_DEG = 60;
 
 function round1(value: number): number {
   return Math.round(value * 10) / 10;

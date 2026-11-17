@@ -36,16 +36,18 @@ function mix(a: Rgb, b: Rgb, f: number): Rgb {
  * (rain / (rain + potential evaporation), 0..1):
  * - wetness moves from ochre (dry) to green (wet);
  * - temperature wakes vegetation up (dormant browns below ~0 °C, full colour above ~12 °C);
- * - hot and dry turns to sand;
- * - a monthly mean below 0 °C means lasting snow cover: white.
+ * - hot and dry turns to sand.
+ * Snow cover is added on top from the snowpack depth.
  */
 export function landscapeColour(temperatureC: number, wetness01: number): Rgb {
   const wet = smoothstep(0.25, 0.65, wetness01);
   const active = smoothstep(-2, 12, temperatureC);
-  let colour = mix(mix(DRY_DORMANT, WET_DORMANT, wet), mix(DRY_ACTIVE, WET_ACTIVE, wet), active);
-  colour = mix(colour, DESERT, smoothstep(18, 28, temperatureC) * (1 - wet));
-  return mix(colour, SNOW, smoothstep(1, -5, temperatureC));
+  const colour = mix(mix(DRY_DORMANT, WET_DORMANT, wet), mix(DRY_ACTIVE, WET_ACTIVE, wet), active);
+  return mix(colour, DESERT, smoothstep(18, 28, temperatureC) * (1 - wet));
 }
+
+/** Snow is blended per pixel from the snowpack (see snow.ts), not from temperature. */
+export const SNOW_RGB = SNOW;
 
 /** mm/month → colour: dry ochre, cream, greens, then blues for very wet. */
 const PRECIPITATION_STOPS: readonly (readonly [number, number, number, number])[] = [

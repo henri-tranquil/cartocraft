@@ -20,7 +20,8 @@ import { cellToScreen, fitViewport, panBy, resize, screenToCell, Viewport, zoomA
 import { loadView, saveView } from './view-memory';
 import { drawWindOverlay } from '../../rendering/wind-overlay';
 import { windFromDirection } from '../../domain/climate/wind';
-import { drawLatitudeOverlay, PIN_HIT_TOLERANCE_PX, pinScreenY } from '../../rendering/latitude-overlay';
+import { drawLatitudeOverlay, LatitudeHandle, latitudeScreenY, PIN_HIT_TOLERANCE_PX, pinScreenY, tiltLines } from '../../rendering/latitude-overlay';
+import { latitudeAtRow } from '../../domain/map/latitude';
 
 const WHEEL_ZOOM_SPEED = 0.0015;
 const VIEW_SAVE_DEBOUNCE_MS = 400;
@@ -57,6 +58,9 @@ const BACKGROUND = '#e2cfa6';
         @if (info.precipitationMm !== null) {
           <span class="chip" title="Précipitations (pluie ou neige) du mois affiché">{{ info.precipitationMm | number: '1.0-0' }} mm/mois</span>
         }
+        @if (info.snowCm !== null && info.snowCm >= 1) {
+          <span class="chip" title="Épaisseur du manteau neigeux">neige {{ info.snowCm >= 255 ? '≥ 255' : (info.snowCm | number: '1.0-0') }} cm</span>
+        }
         @if (info.windLabel) {
           <span class="chip" title="Vent dominant (d’où il vient) et sa vitesse">vent {{ info.windLabel }}</span>
         }
@@ -90,8 +94,8 @@ export class MapCanvas {
   private panning: { pointerId: number; lastX: number; lastY: number } | null = null;
   private viewSaveTimer: ReturnType<typeof setTimeout> | null = null;
   /** Latitude pin being dragged, or hovered (for the highlight and the cursor). */
-  private pinDrag: { pointerId: number; index: 0 | 1 } | null = null;
-  protected readonly hoveredPin = signal<0 | 1 | null>(null);
+  private pinDrag: { pointerId: number; index: LatitudeHandle } | null = null;
+  protected readonly hoveredPin = signal<LatitudeHandle | null>(null);
 
   protected readonly cursor = computed(() =>
     this.hoveredPin() !== null ? 'ns-resize' : this.facade.effectiveTool() === 'pan' ? 'grab' : 'crosshair',
@@ -109,7 +113,7 @@ export class MapCanvas {
     this.facade.hasClimate();
     const wind = this.facade.windAt(point);
     const windLabel = wind ? `${windFromDirection(wind)} ${Math.hypot(wind.uMs, wind.vMs).toFixed(0)} m/s` : null;
-    return { xKm: point.x * km, yKm: point.y * km, altitudeM, temperatureC: this.facade.temperatureAt(point), precipitationMm: this.facade.precipitationAt(point), windLabel };
+    return { xKm: point.x * km, yKm: point.y * km, altitudeM, temperatureC: this.facade.temperatureAt(point), precipitationMm: this.facade.precipitationAt(point), snowCm: this.facade.snowAt(point), windLabel };
   });
 
   protected readonly visibleWidthKm = computed(() => {
@@ -131,6 +135,7 @@ export class MapCanvas {
       this.facade.windOverlay();
       this.facade.latitudePins();
       this.facade.displayedLatitudes();
+      this.facade.displayedTilt();
       this.hoveredPin();
       this.requestDraw();
     });
@@ -179,7 +184,19 @@ export class MapCanvas {
     const vp = this.viewport();
     if (!vp) return;
     if (this.pinDrag?.pointerId === event.pointerId) {
-      this.facade.moveLatitudePin(this.pinDrag.index, screenToCell(vp, event.offsetX, event.offsetY).y);
+      const yCell = screenToCell(vp, event.offsetX, event.offsetY).y;
+      const handle = this.pinDrag.index;
+      if (handle === 0 || handle === 1) {
+        this.facade.moveLatitudePin(handle, yCell);
+      } else {
+        // Tropic at ±tilt, polar circle at ±(90° − tilt): the latitude under the pointer gives the tilt.
+        const edges = this.facade.displayedLatitudes();
+        const map = this.facade.renderMap();
+        if (edges && map) {
+          const lat = Math.abs(latitudeAtRow(edges, map.terrain.baseAltitudeM.heightCells, yCell));
+          this.facade.previewTilt(handle === 'tropic' ? lat : 90 - lat);
+        }
+      }
       return;
     }
     if (!this.panning) this.hoveredPin.set(this.pinAt(vp, event.offsetY));
@@ -195,8 +212,10 @@ export class MapCanvas {
 
   protected onPointerUp(event: PointerEvent): void {
     if (this.pinDrag?.pointerId === event.pointerId) {
+      const handle = this.pinDrag.index;
       this.pinDrag = null;
-      this.facade.commitLatitudes();
+      if (handle === 0 || handle === 1) this.facade.commitLatitudes();
+      else this.facade.commitTiltPreview();
       return;
     }
     if (this.panning?.pointerId === event.pointerId) {
@@ -274,23 +293,41 @@ export class MapCanvas {
       const grid = map.terrain.baseAltitudeM;
       drawLatitudeOverlay(ctx, vp, {
         ...edges,
-        axialTiltDeg: map.settings.axialTiltDeg,
+        axialTiltDeg: this.facade.displayedTilt() ?? map.settings.axialTiltDeg,
         widthCells: grid.widthCells,
         heightCells: grid.heightCells,
         pins,
-        activePin: this.pinDrag?.index ?? this.hoveredPin(),
+        active: this.pinDrag?.index ?? this.hoveredPin(),
       });
     }
   }
 
-  /** Which latitude pin (if any) is within reach of screen row `sy`. */
-  private pinAt(vp: Viewport, sy: number): 0 | 1 | null {
+  /** Which ruler handle (pin, tropic, polar circle) is within reach of screen row `sy`; pins win ties. */
+  private pinAt(vp: Viewport, sy: number): LatitudeHandle | null {
     const pins = this.facade.latitudePins();
-    if (!pins) return null;
-    const d0 = Math.abs(pinScreenY(vp, pins[0]) - sy);
-    const d1 = Math.abs(pinScreenY(vp, pins[1]) - sy);
-    if (Math.min(d0, d1) > PIN_HIT_TOLERANCE_PX) return null;
-    return d0 <= d1 ? 0 : 1;
+    const edges = this.facade.displayedLatitudes();
+    const tilt = this.facade.displayedTilt();
+    const map = this.facade.renderMap();
+    if (!pins || !edges || tilt === null || !map) return null;
+    const candidates: [LatitudeHandle, number][] = [
+      [0, pinScreenY(vp, pins[0])],
+      [1, pinScreenY(vp, pins[1])],
+      ...tiltLines(tilt).map((line): [LatitudeHandle, number] => [
+        line.kind,
+        latitudeScreenY(vp, { ...edges, heightCells: map.terrain.baseAltitudeM.heightCells }, line.latitudeDeg),
+      ]),
+    ];
+    let best: LatitudeHandle | null = null;
+    let bestDistance = PIN_HIT_TOLERANCE_PX;
+    for (const [handle, y] of candidates) {
+      const d = Math.abs(y - sy);
+      if (d <= bestDistance) {
+        if (best !== null && (best === 0 || best === 1) && d === bestDistance) continue;
+        best = handle;
+        bestDistance = d;
+      }
+    }
+    return best;
   }
 
   protected fitToMap(): void {

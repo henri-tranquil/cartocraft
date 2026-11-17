@@ -8,8 +8,21 @@ export interface LatitudeOverlayInput {
   readonly widthCells: number;
   readonly heightCells: number;
   readonly pins: readonly [LatitudePin, LatitudePin];
-  /** Pin under the pointer or being dragged, highlighted. */
-  readonly activePin: 0 | 1 | null;
+  /** Handle under the pointer or being dragged, highlighted. */
+  readonly active: LatitudeHandle | null;
+}
+
+/** What can be dragged on the ruler: one of the two pins, or the tilt lines (tropics, polar circles). */
+export type LatitudeHandle = 0 | 1 | 'tropic' | 'polar';
+
+/** Latitudes of the lines set by the axial tilt: tropics at ±tilt, polar circles at ±(90° − tilt). */
+export function tiltLines(axialTiltDeg: number): { latitudeDeg: number; kind: 'tropic' | 'polar'; name: string }[] {
+  return [
+    { latitudeDeg: axialTiltDeg, kind: 'tropic', name: 'Tropique du Cancer' },
+    { latitudeDeg: -axialTiltDeg, kind: 'tropic', name: 'Tropique du Capricorne' },
+    { latitudeDeg: 90 - axialTiltDeg, kind: 'polar', name: 'Cercle arctique' },
+    { latitudeDeg: -(90 - axialTiltDeg), kind: 'polar', name: 'Cercle antarctique' },
+  ];
 }
 
 /** Overlay colours, kept in line with the UI theme tokens (canvas cannot read CSS variables cheaply). */
@@ -30,7 +43,11 @@ export function pinScreenY(vp: Viewport, pin: LatitudePin): number {
 }
 
 /** Screen y of a latitude for the current (possibly previewed) edges. */
-function latitudeScreenY(vp: Viewport, input: LatitudeOverlayInput, latitudeDeg: number): number {
+export function latitudeScreenY(
+  vp: Viewport,
+  input: Pick<LatitudeOverlayInput, 'latitudeTopDeg' | 'latitudeBottomDeg' | 'heightCells'>,
+  latitudeDeg: number,
+): number {
   return cellToScreen(vp, 0, rowAtLatitude(input, input.heightCells, latitudeDeg)).y;
 }
 
@@ -47,12 +64,16 @@ export function drawLatitudeOverlay(ctx: CanvasRenderingContext2D, vp: Viewport,
 
   drawNotableParallels(ctx, vp, input, mapLeft, mapRight, mapTop, mapBottom);
   drawRuler(ctx, vp, input, mapLeft, mapTop, mapBottom);
-  input.pins.forEach((pin, i) => drawPin(ctx, vp, pin, mapLeft, mapRight, input.activePin === i));
+  input.pins.forEach((pin, i) => drawPin(ctx, vp, pin, mapLeft, mapRight, input.active === i));
 
   ctx.restore();
 }
 
-/** Equator, tropics (±tilt: the sun can be overhead there) and polar circles (90° − tilt: polar day/night). */
+/**
+ * Equator, tropics (±tilt: the sun can be overhead there) and polar circles
+ * (90° − tilt: polar day/night). Tropics and polar circles are draggable:
+ * moving one sets the axial tilt.
+ */
 function drawNotableParallels(
   ctx: CanvasRenderingContext2D,
   vp: Viewport,
@@ -62,25 +83,21 @@ function drawNotableParallels(
   top: number,
   bottom: number,
 ): void {
-  const tilt = input.axialTiltDeg;
-  const parallels: [number, string][] = [
-    [0, 'Équateur'],
-    [tilt, 'Tropique du Cancer'],
-    [-tilt, 'Tropique du Capricorne'],
-    [90 - tilt, 'Cercle arctique'],
-    [-(90 - tilt), 'Cercle antarctique'],
-  ];
-  ctx.setLineDash([6, 5]);
-  ctx.lineWidth = 1.5;
-  for (const [lat, name] of parallels) {
-    const y = latitudeScreenY(vp, input, lat);
+  const tiltActive = input.active === 'tropic' || input.active === 'polar';
+  const parallels = [{ latitudeDeg: 0, kind: 'equator', name: 'Équateur' }, ...tiltLines(input.axialTiltDeg)];
+  for (const { latitudeDeg, kind, name } of parallels) {
+    const y = latitudeScreenY(vp, input, latitudeDeg);
     if (y < top || y > bottom) continue;
-    ctx.strokeStyle = INK;
+    const draggable = kind !== 'equator';
+    ctx.setLineDash(draggable && tiltActive ? [] : [6, 5]);
+    ctx.lineWidth = draggable && tiltActive ? 3 : 1.5;
+    ctx.strokeStyle = draggable && tiltActive ? ACTIVE : INK;
     ctx.beginPath();
     ctx.moveTo(left, y);
     ctx.lineTo(right, y);
     ctx.stroke();
-    labelBox(ctx, name, right - 8, y - 11, 'right', PANEL);
+    const label = draggable ? `⇕ ${name} · inclinaison ${input.axialTiltDeg.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}°` : name;
+    labelBox(ctx, label, right - 8, y - 11, 'right', draggable ? (tiltActive ? ACTIVE : ACCENT) : PANEL, draggable && tiltActive);
   }
   ctx.setLineDash([]);
 }

@@ -45,6 +45,8 @@ export interface ClimateResult {
    * month and the previous one. Per fine cell, MONTHS fields. Drives vegetation colour.
    */
   readonly wetnessPct: Uint8Array;
+  /** Snow depth on the ground, cm (255 = 2.55 m or more), per fine cell, MONTHS fields. */
+  readonly snowDepthCm: Uint8Array;
 }
 
 /** Year phase at the middle of month `m` (0 = January). */
@@ -109,4 +111,12 @@ export function sampleCoarseMonthly(
 /** Precipitation under a fine cell at a continuous year phase, mm/month. */
 export function precipitationAtMm(result: ClimateResult, xCell: number, yCell: number, yearPhase: number): number {
   return sampleCoarseMonthly(result, result.precipitationMm, xCell, yCell, yearPhase);
+}
+
+/** Snow depth under a cell at a continuous year phase, cm. */
+export function snowDepthAtCm(result: ClimateResult, cellIndex: number, yearPhase: number): number {
+  const size = result.widthCells * result.heightCells;
+  const { m0, m1, f } = monthBlend(yearPhase);
+  const d0 = result.snowDepthCm[m0 * size + cellIndex];
+  return d0 + (result.snowDepthCm[m1 * size + cellIndex] - d0) * f;
 }

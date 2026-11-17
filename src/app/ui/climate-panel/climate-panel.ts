@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { ClimateStatus } from '../../application/climate';
-import { EditorFacade, ViewMode } from '../../application/editor-facade';
+import { EditorFacade, MAX_TILT_DEG, ViewMode } from '../../application/editor-facade';
 import {
   temperatureLegendGradient,
   TEMPERATURE_PALETTE_MAX_C,
@@ -69,7 +69,7 @@ function monthOf(phase: number): number {
         </button>
       </div>
       @if (facade.latitudePins(); as pins) {
-        <p class="hint">Glisse les deux lignes sur la carte, puis donne leur latitude (négatif = sud).</p>
+        <p class="hint">Glisse les deux repères sur la carte et donne leur latitude (négatif = sud). Glisse un tropique ou un cercle polaire pour régler l’inclinaison.</p>
         @for (pin of pins; track $index) {
           <label class="pin-row">
             <span class="pin-tag">Repère {{ $index + 1 }}</span>
@@ -85,8 +85,19 @@ function monthOf(phase: number): number {
             <span>°</span>
           </label>
         }
+        <label class="pin-row" title="Inclinaison de l’axe : place les tropiques (±inclinaison) et les cercles polaires, et règle l’amplitude des saisons. Terre : 23,4°.">
+          <span class="pin-tag">Inclinaison</span>
+          <input class="cc-input" type="number" step="0.1" min="0" [max]="maxTilt" [value]="facade.displayedTilt()" (change)="setTilt($event)" />
+          <span>°</span>
+        </label>
+        <div class="presets">
+          <button type="button" class="cc-btn shape-galet" title="Remettre l’inclinaison de la Terre (23,4°)" (click)="facade.updateClimateSettings({ axialTiltDeg: 23.44 })">
+            <span class="cc-caption">Terre</span>
+          </button>
+        </div>
       } @else if (latitudes(); as lat) {
         <p class="lat-range">{{ lat.top }} <span class="muted">en haut</span> → {{ lat.bottom }} <span class="muted">en bas</span></p>
+        <p class="lat-range">Inclinaison {{ facade.settings()?.axialTiltDeg | number: '1.1-1' }}°</p>
       }
     </section>
 
@@ -142,6 +153,8 @@ function monthOf(phase: number): number {
     .pin-tag { flex: 1; }
     .pin-row .cc-input { width: 64px; }
     .lat-range { margin: 0; }
+    .presets { display: flex; justify-content: flex-end; }
+    .presets .cc-btn { height: 24px; padding: 0 10px; --cc-shadow: 2px; }
     .season { padding: 10px; display: flex; flex-direction: column; gap: 4px; }
     .slider { display: flex; flex-direction: column; gap: 2px; font-size: 11px; font-weight: 600; }
     .slider-head { display: flex; align-items: center; gap: 5px; }
@@ -176,6 +189,13 @@ export class ClimatePanel {
     const s = this.facade.settings();
     return s ? { top: formatLatitude(s.latitudeTopDeg, 1), bottom: formatLatitude(s.latitudeBottomDeg, 1) } : null;
   });
+
+  protected readonly maxTilt = MAX_TILT_DEG;
+
+  protected setTilt(event: Event): void {
+    const value = this.numberValue(event);
+    if (Number.isFinite(value)) this.facade.updateClimateSettings({ axialTiltDeg: Math.min(MAX_TILT_DEG, Math.max(0, value)) });
+  }
 
   protected toggleRuler(): void {
     if (this.facade.latitudePins()) this.facade.stopLatitudeEditing();

@@ -176,6 +176,27 @@ describe('EditorFacade', () => {
     expect(facade.settings()?.latitudeBottomDeg).toBe(DEFAULT_MAP_SETTINGS.latitudeBottomDeg);
   });
 
+  it('changes the axial tilt as an undoable command', async () => {
+    await facade.createBlankMap(SMALL_MAP, 'A');
+    facade.updateClimateSettings({ axialTiltDeg: 40 });
+    expect(facade.settings()?.axialTiltDeg).toBe(40);
+    expect(facade.undoLabel()).toBe('Régler l’inclinaison de l’axe');
+    facade.undo();
+    expect(facade.settings()?.axialTiltDeg).toBe(DEFAULT_MAP_SETTINGS.axialTiltDeg);
+    facade.updateClimateSettings({ axialTiltDeg: 120 });
+    expect(facade.error()).toContain('inclinaison');
+  });
+
+  it('previews the tilt while a tropic is dragged, then commits one command', async () => {
+    await facade.createBlankMap(SMALL_MAP, 'A');
+    facade.previewTilt(30.04);
+    expect(facade.displayedTilt()).toBe(30);
+    expect(facade.settings()?.axialTiltDeg).toBe(DEFAULT_MAP_SETTINGS.axialTiltDeg);
+    facade.commitTiltPreview();
+    expect(facade.settings()?.axialTiltDeg).toBe(30);
+    expect(facade.undoLabel()).toBe('Régler l’inclinaison de l’axe');
+  });
+
   it('refuses pins that would put the south at the top', async () => {
     await facade.createBlankMap(SMALL_MAP, 'A');
     facade.startLatitudeEditing();

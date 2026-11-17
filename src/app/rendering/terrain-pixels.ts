@@ -1,7 +1,8 @@
 import { CellRect, getCellClamped, INT16_MIN, Int16TiledGrid } from '../domain/terrain/tiled-grid';
 import { ClimateResult, monthBlend, sampleCoarseMonthly, TEMPERATURE_SCALE } from '../domain/climate/climate-model';
 import { AltitudePalette } from './style/altitude-palette';
-import { ClimateLuts, PRECIPITATION_PALETTE_MAX_MM } from './style/climate-palettes';
+import { ClimateLuts, PRECIPITATION_PALETTE_MAX_MM, SNOW_RGB } from './style/climate-palettes';
+import { snowCover } from '../domain/climate/snow';
 import { TEMPERATURE_PALETTE_MAX_C, TEMPERATURE_PALETTE_MIN_C } from './style/temperature-palette';
 
 export type ClimateColouring = 'landscape' | 'temperature' | 'precipitation';
@@ -66,6 +67,7 @@ export function renderTerrainPixels(
   // Climate views: resolve the season blend once, not per pixel.
   const tData = climate?.result.temperatureDeciC;
   const wData = climate?.result.wetnessPct;
+  const sData = climate?.result.snowDepthCm;
   const precip = climate?.result.precipitationMm;
   const tWidth = climate?.result.widthCells ?? 0;
   const fieldSize = tWidth * (climate?.result.heightCells ?? 0);
@@ -91,7 +93,7 @@ export function renderTerrainPixels(
       let g: number;
       let b: number;
       const isSea = altitude <= palette.seaLevelM;
-      if (climate && tData && wData && precip) {
+      if (climate && tData && wData && sData && precip) {
         const i = y * tWidth + x;
         const tC = (tData[off0 + i] + (tData[off1 + i] - tData[off0 + i]) * blend.f) / TEMPERATURE_SCALE;
         const ti = Math.min(tMaxIndex, Math.max(0, Math.round(tC) - TEMPERATURE_PALETTE_MIN_C));
@@ -119,6 +121,15 @@ export function renderTerrainPixels(
         b = lut[li + 2];
         if (climate.colouring === 'landscape') {
           if (isSea && tC <= SEA_ICE_C) [r, g, b] = SEA_ICE;
+          if (!isSea) {
+            const depth = sData[off0 + i] + (sData[off1 + i] - sData[off0 + i]) * blend.f;
+            if (depth > 0) {
+              const cover = snowCover(depth);
+              r += (SNOW_RGB[0] - r) * cover;
+              g += (SNOW_RGB[1] - g) * cover;
+              b += (SNOW_RGB[2] - b) * cover;
+            }
+          }
         } else if (isSea) {
           r += (SEA_TINT[0] - r) * SEA_TINT_WEIGHT;
           g += (SEA_TINT[1] - g) * SEA_TINT_WEIGHT;

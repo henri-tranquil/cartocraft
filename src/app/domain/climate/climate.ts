@@ -5,6 +5,7 @@ import { blur, monsoonWinds } from './monsoon';
 import { COLD_AIR_DEPTH_M, deflectWind, stabilityFromAnomaly, terrainSlope, WARM_AIR_DEPTH_M } from './terrain-flow';
 import { computeMonthlyTemperatures, LAPSE_RATE_C_PER_M, rowSeaLevelTemperaturesC } from './temperature';
 import { prevailingWind } from './wind';
+import { SNOW_DEPTH_PER_SWE, snowStepDeci } from './snow';
 
 /**
  * Relaxation times: how long air "remembers" where it came from.
@@ -12,7 +13,7 @@ import { prevailingWind } from './wind';
  * far before forgetting the ocean.
  */
 const TAU_LAND_S = 86_400; // 1 day
-const TAU_SEA_S = 86_400; // 1 day (a cold air mass is deep: the sea warms it slowly)
+const TAU_SEA_S = 129_600; // 1.5 day: cold air masses are deep, the sea warms them slowly
 /** Below this the air is considered calm: no transport. */
 const CALM_MS = 0.5;
 /** Equilibrium relative humidity the surface pushes the air toward. */
@@ -49,7 +50,8 @@ const LATENT_SHARE_AT_SURFACE = 0.3;
  *    at the height of the terrain it flows over;
  * 4. precipitation = what the air must drop when lifted (orographic) + a
  *    background rain-out of humid air (fronts, convection);
- * 5. soil wetness = rain vs. potential evaporation, for vegetation colours.
+ * 5. soil wetness = rain vs. potential evaporation, for vegetation colours;
+ * 6. snowpack = snowfall minus melt, month after month.
  */
 export function computeClimate(input: ClimateInput): ClimateResult {
   const { widthCells: w, heightCells: h, altitudeM, seaLevelM, axialTiltDeg } = input;
@@ -160,7 +162,9 @@ export function computeClimate(input: ClimateInput): ClimateResult {
 
     // Föhn: the heat released by condensation on the windward slopes is
     // carried over the ridge, so the lee gets warmer, drier air.
-    const latentC = condensed.map((g) => g * LATENT_WARMING_C_PER_G_PER_KG * LATENT_SHARE_AT_SURFACE);
+    // Only condensation forced by terrain counts: over the sea, convective
+    // showers release their heat aloft, not in the surface air we model.
+    const latentC = condensed.map((g, c) => g * (1 - seaFraction[c]) * LATENT_WARMING_C_PER_G_PER_KG * LATENT_SHARE_AT_SURFACE);
     temp.set(eqT);
     advect(temp, eqT, step, cw, ch, SWEEPS, undefined, { climbM, coldDepthM: COLD_AIR_DEPTH_M, warmDepthM: WARM_AIR_DEPTH_M }, latentC);
     for (let c = 0; c < cells; c++) deltaT[offset + c] = temp[c] - eqT[c];
@@ -199,10 +203,31 @@ export function computeClimate(input: ClimateInput): ClimateResult {
     }
   }
 
+  // --- Snowpack: monthly mass balance on the fine grid (altitude matters) ---
+  // The year is cyclic: start in August (no snow anywhere but on glaciers),
+  // run two years, keep the second.
+  const snowDepthCm = new Uint8Array(MONTHS * size);
+  const swe = new Float32Array(size);
+  const AUGUST = 7;
+  for (let k = 0; k < 2 * MONTHS; k++) {
+    const m = (AUGUST + k) % MONTHS;
+    upsampleInto(precipitationMm.subarray(m * cells, (m + 1) * cells), grid, w, h, fineRain);
+    const offset = m * size;
+    const record = k >= MONTHS;
+    for (let i = 0; i < size; i++) {
+      const before = swe[i];
+      const after = snowStepDeci(before, temperatureDeciC[offset + i], fineRain[i]);
+      swe[i] = after;
+      // Mid-month snapshot: halfway through the month's balance. mm → cm of snow.
+      if (record) snowDepthCm[offset + i] = Math.min(255, Math.round((((before + after) / 2) * SNOW_DEPTH_PER_SWE) / 10));
+    }
+  }
+
   return {
     widthCells: w,
     heightCells: h,
     temperatureDeciC,
+    snowDepthCm,
     windGrid: { width: cw, height: ch, factor: grid.factor },
     windUMs,
     windVMs,
