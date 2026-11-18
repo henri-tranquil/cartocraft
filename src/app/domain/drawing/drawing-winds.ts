@@ -67,6 +67,15 @@ export interface DrawingAirField {
   readonly rowNorthMs: Float32Array;
   /** Per coarse row: peak NORTH component of the westerlies' wave (m/s), see `waveNorthMs`. */
   readonly rowWaveMs: Float32Array;
+  /**
+   * Planet scale: map km per degree of latitude ÷ the Earth's (111 km), at
+   * most 1. A fantasy map that spans the Arctic circle to the tropics in
+   * 1000 km squeezes the planet ~5×: the circulation's distances (air memory,
+   * moistening, rain-out, wave, streamlines, continentality, fronts) shrink
+   * with it, so the belts and air masses keep their proportions. Distances
+   * tied to the drawn relief itself (relief blur, look-ahead) do not.
+   */
+  readonly scale: number;
   /** Wavelength of the wave and x of its trough (km). */
   readonly waveLengthKm: number;
   readonly troughXKm: number;
@@ -140,7 +149,8 @@ export function drawingAirField(drawing: Int16TiledGrid, cellKm: number, setting
   }
   const barrier = boxBlur(boxBlur(relief, w, h, radius), w, h, radius);
   const widthKm = w * coarseKm;
-  const waveLengthKm = Math.min(WAVE_MAX_KM, Math.max(WAVE_MIN_KM, widthKm));
+  const scale = planetScale(h * coarseKm, settings);
+  const waveLengthKm = Math.min(WAVE_MAX_KM * scale, Math.max(WAVE_MIN_KM * scale, widthKm));
   const troughXKm = anchorXKm(barrier, water, rowWaveMs, w, h, coarseKm) + waveLengthKm / 4;
   return {
     widthCells: w,
@@ -157,9 +167,22 @@ export function drawingAirField(drawing: Int16TiledGrid, cellKm: number, setting
     rowEastMs,
     rowNorthMs,
     rowWaveMs,
+    scale,
     waveLengthKm,
     troughXKm,
   };
+}
+
+/** Km per degree of latitude on Earth. */
+export const EARTH_KM_PER_DEG = 111;
+/** Smallest planet scale (a whole hemisphere on a few hundred km would leave the grid too coarse). */
+const MIN_PLANET_SCALE = 0.1;
+
+/** See `DrawingAirField.scale`. */
+export function planetScale(heightKm: number, settings: Pick<MapSettings, 'latitudeTopDeg' | 'latitudeBottomDeg'>): number {
+  const spanDeg = Math.abs(settings.latitudeTopDeg - settings.latitudeBottomDeg);
+  if (spanDeg <= 0) return 1;
+  return Math.min(1, Math.max(MIN_PLANET_SCALE, heightKm / spanDeg / EARTH_KM_PER_DEG));
 }
 
 /**
@@ -352,7 +375,7 @@ export function traceStreamline(field: DrawingAirField, startX: number, startY: 
   let box = { x0: x, y0: y, x1: x, y1: y };
   let travelled = 0;
   let sinceRecord = recordKm;
-  while (x >= 0 && y >= 0 && x <= widthKm && y <= heightKm && travelled <= LINE_KM) {
+  while (x >= 0 && y >= 0 && x <= widthKm && y <= heightKm && travelled <= LINE_KM * field.scale) {
     if (sinceRecord >= recordKm) {
       points.push(x, y);
       temps.push(tempC);
@@ -367,7 +390,7 @@ export function traceStreamline(field: DrawingAirField, startX: number, startY: 
     // The heading the air "wants" turns towards the prevailing wind; the relief only bends
     // the actual move. (Bending the heading itself would add up step after step, and every
     // air mass would end up sliding along the range.)
-    const pull = stepKm / RELAX_KM;
+    const pull = stepKm / (RELAX_KM * field.scale);
     [dx, dy] = normalise(dx + base.dx * pull, dy + base.dy * pull);
     const [mx, my] = deflect(field, x, y, dx, dy, tempC);
     x += mx * stepKm;
@@ -376,14 +399,14 @@ export function traceStreamline(field: DrawingAirField, startX: number, startY: 
     sinceRecord += stepKm;
     // The air mass slowly takes the temperature of the place.
     const local = sampleRow(field, field.rowTempC, y);
-    tempC += (local - tempC) * (1 - Math.exp(-stepKm / AIR_MEMORY_KM));
+    tempC += (local - tempC) * (1 - Math.exp(-stepKm / (AIR_MEMORY_KM * field.scale)));
     // Moisture: towards the capacity over water and forest, slow drying over bare land; never above the capacity (the excess condenses: rain, step V2).
     const capacity = moistureCapacity(tempC);
     const water = sample(field, field.water, x, y);
     const forest = sample(field, field.forest, x, y) * (1 - water);
-    const gain = water * (stepKm / WATER_MOISTENING_KM) + forest * (stepKm / FOREST_MOISTENING_KM);
+    const gain = (water * (stepKm / WATER_MOISTENING_KM) + forest * (stepKm / FOREST_MOISTENING_KM)) / field.scale;
     humidity += (capacity - humidity) * Math.min(1, gain);
-    humidity -= humidity * (1 - water - forest) * (stepKm / LAND_DRYING_KM);
+    humidity -= humidity * (1 - water - forest) * (stepKm / (LAND_DRYING_KM * field.scale));
     humidity = Math.min(humidity, capacity);
   }
   points.push(x, y);

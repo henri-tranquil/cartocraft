@@ -167,7 +167,8 @@ export function drawingWeather(field: DrawingAirField): DrawingWeather {
 
   // 2. Air temperature, carried by the wind. Then the winds again: cold air carried south is bent like cold air.
   const temp = Float32Array.from(localT);
-  const keep = Math.exp(-km / AIR_MEMORY_KM);
+  const scale = field.scale;
+  const keep = Math.exp(-km / (AIR_MEMORY_KM * scale));
   const advectTemperature = () =>
     sweep(w, h, TEMPERATURE_SWEEPS, (x, y, i) => {
       const up = sampleGrid(temp, w, h, x + 0.5 - windX[i], y + 0.5 - windY[i]);
@@ -188,7 +189,8 @@ export function drawingWeather(field: DrawingAirField): DrawingWeather {
       const i = y * w + x;
       const ax = (temp[y * w + Math.min(w - 1, x + 1)] - localT[y * w + Math.min(w - 1, x + 1)]) - (temp[y * w + Math.max(0, x - 1)] - localT[y * w + Math.max(0, x - 1)]);
       const ay = (temp[Math.min(h - 1, y + 1) * w + x] - localT[Math.min(h - 1, y + 1) * w + x]) - (temp[Math.max(0, y - 1) * w + x] - localT[Math.max(0, y - 1) * w + x]);
-      const per100Km = (Math.hypot(ax, ay) / (2 * km)) * 100;
+      // Per 100 km of the scaled planet: a squeezed map has squeezed contrasts too.
+      const per100Km = (Math.hypot(ax, ay) / (2 * km)) * 100 * scale;
       front[i] = smoothstep(FRONT_GRADIENT_C_PER_100KM.from, FRONT_GRADIENT_C_PER_100KM.to, per100Km);
     }
   }
@@ -223,10 +225,10 @@ export function drawingWeather(field: DrawingAirField): DrawingWeather {
     const forest = field.forest[i] * (1 - sea);
     const bare = Math.max(0, 1 - sea - forest);
     target[i] = MOISTENED_SHARE * capacityMm(temp[i]);
-    uptake[i] = Math.min(1, sea * (km / WATER_MOISTENING_KM) + forest * (km / FOREST_MOISTENING_KM) + bare * (km / LAND_MOISTENING_KM));
+    uptake[i] = Math.min(1, (sea * (km / WATER_MOISTENING_KM) + forest * (km / FOREST_MOISTENING_KM) + bare * (km / LAND_MOISTENING_KM)) / scale);
     aloft[i] = capacityMm(temp[i] - altitudeM[i] * LAPSE_RATE_C_PER_M);
     // Fronts make the air rise wherever they are, even where the general circulation makes it sink.
-    rainRate[i] = Math.max(efficiency[Math.floor(i / w)], FRONT_EFFICIENCY * frontiness[i]) * (km / RAIN_OUT_KM) * (1 + FRONT_BOOST * frontiness[i]);
+    rainRate[i] = Math.max(efficiency[Math.floor(i / w)], FRONT_EFFICIENCY * frontiness[i]) * (km / (RAIN_OUT_KM * scale)) * (1 + FRONT_BOOST * frontiness[i]);
   }
   sweep(w, h, MOISTURE_SWEEPS, (x, y, i) => {
     // In a calm belt nothing blows: the air mixes with its neighbours.
@@ -245,7 +247,7 @@ export function drawingWeather(field: DrawingAirField): DrawingWeather {
 
   // 4. Continentality: the sea damps the seasons (it stores the summer's heat and gives it back in
   // winter). The share of land within a few hundred km sets how continental each place is.
-  const radius = Math.max(1, Math.round(CONTINENTAL_RADIUS_KM / km));
+  const radius = Math.max(1, Math.round((CONTINENTAL_RADIUS_KM * scale) / km));
   const landShare = new Float32Array(n);
   for (let i = 0; i < n; i++) landShare[i] = 1 - field.water[i];
   const blurred = boxBlurGrid(boxBlurGrid(landShare, w, h, radius), w, h, radius);
@@ -261,7 +263,8 @@ export function drawingWeather(field: DrawingAirField): DrawingWeather {
   const warmestTempC = new Float32Array(n);
   const coldestTempC = new Float32Array(n);
   for (let i = 0; i < n; i++) {
-    const p = (smoothRain[i] / km) * AIR_KM_PER_DAY * 365;
+    // The air crosses the squeezed planet in the same time: its speed in km shrinks with the scale.
+    const p = (smoothRain[i] / km) * AIR_KM_PER_DAY * scale * 365;
     const t = temp[i] - altitudeM[i] * LAPSE_RATE_C_PER_M;
     // Month by month: with the annual mean alone, a cold place would have no evaporation at all, even in summer.
     const row = Math.floor(i / w);

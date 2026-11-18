@@ -28,16 +28,16 @@ describe('drawing winds', () => {
   it('blow towards the east and the pole in the westerlies, towards the west and the equator in the trades', () => {
     const westerlies = traceStreamline(drawingAirField(flat, 1, settings(52, 38)), 100, 500);
     const trades = traceStreamline(drawingAirField(flat, 1, settings(27, 13)), 900, 500);
-    expect(westerlies && last(westerlies, 0)).toBeGreaterThan(500);
+    expect(westerlies && last(westerlies, 0)).toBeGreaterThan(400); // 14° on 1000 km: lines of 0.64 × 700 km
     expect(westerlies && last(westerlies, 1)).toBeLessThan(500); // north = up
-    expect(trades && last(trades, 0)).toBeLessThan(400);
+    expect(trades && last(trades, 0)).toBeLessThan(600); // started at 900
     expect(trades && last(trades, 1)).toBeGreaterThan(500); // towards the equator = down here
   });
 
   it('meander: cold air dives towards the equator west of the trough, warm air rises east of it', () => {
-    // 1000 km wide → λ 1500 km; land everywhere → trough at 500 + 375 = 875 km.
+    // 20° on 1000 km: planet scale 0.45, λ = max(1500 × 0.45, map width 1000) = 1000 km; land everywhere → trough at 500 + 250 = 750 km.
     const field = drawingAirField(flat, 1, settings(55, 35));
-    expect(field.troughXKm).toBeCloseTo(875, -1);
+    expect(field.troughXKm).toBeCloseTo(750, -1);
     const west = traceStreamline(field, 350, 400);
     const east = traceStreamline(field, 880, 600);
     expect(west && last(west, 1)).toBeGreaterThan(450); // south
@@ -50,7 +50,7 @@ describe('drawing winds', () => {
 
   it('anchor the trough east of the main mountain range', () => {
     const range = grid((x) => (x >= 150 && x < 250 ? HIGH : PLAIN));
-    expect(drawingAirField(range, 1, settings(55, 35)).troughXKm).toBeCloseTo(200 + 375, -1);
+    expect(drawingAirField(range, 1, settings(55, 35)).troughXKm).toBeCloseTo(200 + 250, -1);
   });
 
   it('end where two belts meet (the polar front): westerlies and polar air converge', () => {

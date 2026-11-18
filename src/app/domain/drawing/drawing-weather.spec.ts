@@ -89,4 +89,23 @@ describe('drawing weather', () => {
     const flat = weather(48, 42, () => PLAIN);
     expect(Math.max(...flat.frontiness)).toBeLessThan(0.5);
   });
+
+  it('keeps the same climate on a squeezed fantasy planet (Arctic circle to tropic in 1000 km) as at true size', () => {
+    const g = createInt16TiledGrid(240, 240, PLAIN, 256);
+    for (let y = 0; y < 240; y++) for (let x = 0; x < 40; x++) setCell(g, x, y, SEA_CELL);
+    const settings = { ...DEFAULT_MAP_SETTINGS, latitudeTopDeg: 66, latitudeBottomDeg: 23 };
+    const trueSize = drawingAirField(g, 20, settings); // 4800 km: about the Earth's
+    const squeezed = drawingAirField(g, 1000 / 240, settings);
+    expect(trueSize.scale).toBe(1);
+    expect(squeezed.scale).toBeCloseTo(0.21, 2);
+    const a = drawingWeather(trueSize);
+    const b = drawingWeather(squeezed);
+    for (const fy of [0.2, 0.5, 0.8]) {
+      for (const fx of [0.2, 0.5, 0.8]) {
+        const at = (w: DrawingWeather, cellKm: number, grid: Float32Array) => sampleWeather(w, grid, fx * 240 * cellKm, fy * 240 * cellKm);
+        expect(Math.abs(at(a, 20, a.wetnessPct) - at(b, 1000 / 240, b.wetnessPct))).toBeLessThan(5);
+        expect(Math.abs(at(a, 20, a.meanTempC) - at(b, 1000 / 240, b.meanTempC))).toBeLessThan(1);
+      }
+    }
+  });
 });
