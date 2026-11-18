@@ -49,6 +49,7 @@ import {
 import { DrawingBrushOptions, DrawingBrushTool } from './tools/drawing-brush-tool';
 import { RiverDrawTool, RiverEraseTool } from './tools/river-tools';
 import { VolcanoTool } from './tools/volcano-tool';
+import { AirStreamline, drawingAirField, DrawingAirField, traceDrawingWinds } from '../domain/drawing/drawing-winds';
 import { RiverSnap } from '../domain/drawing/drawn-river';
 import { checkDrawing, DrawingWarning } from '../domain/drawing/drawing-checks';
 import { ForestKind, ReliefClass } from '../domain/drawing/drawing-cell';
@@ -144,6 +145,8 @@ export class EditorFacade {
   private readonly riverPreviewState = signal<readonly number[] | null>(null);
   /** Kind of the next volcano placed (and given to a volcano clicked). */
   private readonly volcanoKindState = signal<VolcanoKind>('erupting');
+  /** Draw step: the wind overlay (computed winds, animated) is shown. */
+  private readonly windOverlayShownState = signal(false);
   private readonly drawingBrushState = signal<DrawingBrushOptions>({ radiusKm: 30, roughness: 0.6 });
   /** False while a non-editing panel (maps, climate) is shown: the map can only be panned. */
   private readonly editingEnabledState = signal(true);
@@ -229,6 +232,21 @@ export class EditorFacade {
   readonly workspace = this.workspaceState.asReadonly();
   readonly drawTool = this.drawToolState.asReadonly();
   readonly volcanoKind = this.volcanoKindState.asReadonly();
+  readonly windOverlayShown = this.windOverlayShownState.asReadonly();
+  /** The winds are drawn (animated) in the Draw step when their overlay is on. */
+  readonly windsVisible = computed(() => this.workspaceState() === 'draw' && this.windOverlayShownState());
+  /** The drawing as the air feels it: rebuilt after each finished gesture, undo or latitude change, not during a stroke. Lazy: read only while the winds show. */
+  private readonly airField = computed<DrawingAirField | null>(() => {
+    this.historyRevision();
+    const map = this.store.map();
+    const settings = this.settings();
+    return map && settings ? drawingAirField(map.terrain.drawing, settings.baseCellKm, settings) : null;
+  });
+  /** Streamlines of the computed winds (km). */
+  readonly windFlows = computed<readonly AirStreamline[]>(() => {
+    const field = this.airField();
+    return field ? traceDrawingWinds(field) : [];
+  });
   readonly drawingBrush = this.drawingBrushState.asReadonly();
   /** Editable layer of the open map (null: no map). */
   readonly mapSource = computed<MapSource | null>(() => this.store.map()?.source ?? null);
@@ -613,6 +631,10 @@ export class EditorFacade {
   /** The canvas reports its scale (km per CSS pixel) whenever the view changes. */
   setKmPerPx(kmPerPx: number): void {
     this.kmPerPxState.set(kmPerPx);
+  }
+
+  setWindOverlayShown(shown: boolean): void {
+    this.windOverlayShownState.set(shown);
   }
 
   setVolcanoKind(kind: VolcanoKind): void {

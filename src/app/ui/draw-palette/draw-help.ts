@@ -65,6 +65,17 @@ function formatArea(km2: number): string {
       </section>
     }
     <section class="card">
+      <h2>Surcouche</h2>
+      <button type="button" class="kind toggle" [attr.aria-pressed]="facade.windOverlayShown()" (click)="facade.setWindOverlayShown(!facade.windOverlayShown())">
+        <b>Vents</b>
+        <span>{{ facade.windOverlayShown() ? 'Affichés : clique pour les masquer.' : 'Calculés tout seuls d’après les latitudes et le relief.' }}</span>
+      </button>
+      @if (facade.windOverlayShown()) {
+        <div class="legend" aria-hidden="true"><i class="scale"></i><span>−15 °C</span><span>0</span><span>15</span><span>30 °C</span></div>
+        <p class="hint">Couleur = température de l’air, qui garde celle d’où il vient. Trait épais = air humide (chargé au-dessus de la mer, des lacs et des forêts). L’air froid longe les reliefs ; l’air chaud passe les collines. Les vents ne changent pas encore la couleur du sol.</p>
+      }
+    </section>
+    <section class="card">
       <h2>À vérifier</h2>
       <ul>
         @for (warning of warnings(); track $index) {
@@ -107,6 +118,12 @@ function formatArea(km2: number): string {
     .kind:hover { border-color: var(--cc-ink); }
     .kind[aria-checked='true'] { background: var(--cc-active); color: var(--cc-active-fg); border-color: var(--cc-ink); }
     .kind[aria-checked='true'] span { color: inherit; opacity: 0.85; }
+    .toggle { width: 100%; }
+    .toggle[aria-pressed='true'] { background: var(--cc-active); color: var(--cc-active-fg); border-color: var(--cc-ink); }
+    .toggle[aria-pressed='true'] span { color: inherit; opacity: 0.85; }
+    .legend { display: grid; grid-template-columns: repeat(4, 1fr); margin: 8px 0 4px; font-size: 11px; color: var(--cc-muted); }
+    .legend span:last-child { text-align: right; }
+    .scale { grid-column: 1 / -1; height: 8px; margin-bottom: 2px; border: 1px solid var(--cc-ink); border-radius: 4px; background: linear-gradient(90deg, var(--cc-wind-cold), var(--cc-wind-cool), var(--cc-wind-mild), var(--cc-wind-warm)); }
     kbd { font: 600 11px var(--cc-font-ui); padding: 1px 5px; background: var(--cc-panel-2); border: 1px solid var(--cc-line); border-radius: 4px; }
   `,
 })

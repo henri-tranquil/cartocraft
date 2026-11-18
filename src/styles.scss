@@ -20,6 +20,11 @@
   --cc-accent: #e0a43a;
   --cc-ok: #7fa66a;
   --cc-danger: #b8432f;
+  /* Wind overlay temperature scale (same stops as rendering/drawing/wind-flow-layer.ts). */
+  --cc-wind-cold: #2c4fb4;
+  --cc-wind-cool: #8cbeeb;
+  --cc-wind-mild: #f0c878;
+  --cc-wind-warm: #d23c28;
   /* "Dessiner d'abord" shell: softer brutalism (rounded corners, light lines). */
   --cc-panel-2: #efe3c6;
   --cc-line: #cbb68a;

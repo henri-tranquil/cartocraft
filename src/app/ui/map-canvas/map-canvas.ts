@@ -1,5 +1,6 @@
 import { DrawnRiver, riverFlowsKm } from '../../domain/drawing/drawn-river';
 import { drawRiverMagnet, drawRiverPreview } from '../../rendering/drawing/drawn-river-layer';
+import { drawWindFlows } from '../../rendering/drawing/wind-flow-layer';
 import {
   afterNextRender,
   ChangeDetectionStrategy,
@@ -206,6 +207,7 @@ export class MapCanvas {
       this.draggedFeature();
       this.lasso();
       this.facade.riverPreview();
+      this.facade.windsVisible();
       this.requestDraw();
     });
 
@@ -496,6 +498,8 @@ export class MapCanvas {
     if (this.drawingView?.map !== map) this.drawingView = { view: new DrawingView(map), map };
     else this.drawingView.view.invalidate(dirty);
     const pending = this.drawingView.view.draw(ctx, vp, dpr);
+    const winds = this.facade.windsVisible();
+    if (winds) drawWindFlows(ctx, vp, map.settings.baseCellKm, this.facade.windFlows(), performance.now() / 1000);
     drawRiverPreview(ctx, vp, this.facade.riverPreview(), map.settings.baseCellKm);
     const hover = this.hover();
     const magnet = hover ? this.facade.riverSnapAt(hover) : null;
@@ -503,7 +507,8 @@ export class MapCanvas {
     this.drawBrushCursor(ctx, vp, map);
     this.drawNames(ctx, vp, map);
     this.drawLatitudes(ctx, vp, map);
-    if (pending) this.requestDraw();
+    // Pending tiles, or the wind animation: draw again next frame.
+    if (pending || winds) this.requestDraw();
   }
 
   private drawRendered(ctx: CanvasRenderingContext2D, vp: Viewport, map: WorldMap): void {
