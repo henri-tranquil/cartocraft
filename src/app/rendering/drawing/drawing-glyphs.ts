@@ -99,9 +99,11 @@ export function drawDrawingGlyphs(
   originY: number,
   tilePx: number,
   pxScale: number,
+  /** Lattice points (level px) where nothing grows: river beds. */
+  blocked: (x: number, y: number) => boolean = () => false,
 ): void {
-  const reliefs = placeReliefGlyphs(drawing, seed, level, originX, originY, tilePx, pxScale);
-  const trees = placeTreeGlyphs(drawing, seed, level, originX, originY, tilePx, pxScale);
+  const reliefs = placeReliefGlyphs(drawing, seed, level, originX, originY, tilePx, pxScale, blocked);
+  const trees = placeTreeGlyphs(drawing, seed, level, originX, originY, tilePx, pxScale, blocked);
   // Merge the two sorted lists by base: back to front.
   let i = 0;
   let j = 0;
@@ -131,6 +133,7 @@ export function placeTreeGlyphs(
   originY: number,
   tilePx: number,
   pxScale: number,
+  blocked: (x: number, y: number) => boolean = () => false,
 ): TreeGlyph[] {
   const step = FOREST_GLYPHS.spacingPx * pxScale;
   const reach = Math.max(...FOREST_GLYPHS.sizes) * (1 + FOREST_GLYPHS.sizeJitter) * pxScale;
@@ -149,6 +152,7 @@ export function placeTreeGlyphs(
       const forest = forestIndexOf(code);
       if (forest === 0 || !isLandCode(code)) continue;
       if (hash2(s ^ SALT_KEEP, a, b) >= FOREST_GLYPHS.keepByRelief[reliefIndexOf(code)]) continue;
+      if (blocked(x, y)) continue;
       const scale = 1 + (hash2(s ^ SALT_SIZE, a, b) - 0.5) * 2 * FOREST_GLYPHS.sizeJitter;
       trees.push({ x: x - originX, y: y - originY, forest, scale, variant: hash2(s ^ SALT_VARIANT, a, b) });
     }
@@ -205,6 +209,7 @@ export function placeReliefGlyphs(
   originY: number,
   tilePx: number,
   pxScale: number,
+  blocked: (x: number, y: number) => boolean = () => false,
 ): ReliefGlyph[] {
   const step = RELIEF_GLYPHS.spacingPx * pxScale;
   const reach = RELIEF_GLYPH_REACH_PX * pxScale;
@@ -224,6 +229,7 @@ export function placeReliefGlyphs(
       const relief = reliefIndexOf(code);
       if (!isLandCode(code) || relief === 0) continue;
       if (relief === 1 && hash2(s ^ SALT_KEEP, a, b) > RELIEF_GLYPHS.hillDensity) continue;
+      if (blocked(x, y)) continue;
       const scale = 1 + (hash2(s ^ SALT_SIZE, a, b) - 0.5) * 2 * RELIEF_GLYPHS.sizeJitter;
       glyphs.push({ x: x - originX, y: y - originY, relief, scale, variant: hash2(s ^ SALT_VARIANT, a, b) });
     }

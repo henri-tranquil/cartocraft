@@ -1,4 +1,5 @@
 import { parseFeatures } from './feature-codec';
+import { DrawnRiver } from '../drawing/drawn-river';
 import { MapFeature } from '../features/map-feature';
 import { BEYOND_EDGE_VALUES, BeyondEdge, MapSettings, validateMapSettings } from '../map/map-settings';
 import { CURRENT_FORMAT_VERSION, WorldMap } from '../map/world-map';
@@ -27,6 +28,8 @@ export interface MapHeader {
   readonly updatedAt: string;
   readonly grids: readonly GridDescriptor[];
   readonly features: readonly MapFeature[];
+  /** Drawn rivers. Added inside format 4: absent from older headers, read as none. */
+  readonly rivers: readonly DrawnRiver[];
 }
 
 export function mapToHeader(map: WorldMap): MapHeader {
@@ -41,6 +44,7 @@ export function mapToHeader(map: WorldMap): MapHeader {
     updatedAt: map.updatedAt,
     grids: [descriptor(BASE_ALTITUDE_BLOCK), descriptor(DRAWING_BLOCK)],
     features: map.features,
+    rivers: map.rivers,
   };
 }
 
@@ -74,6 +78,7 @@ export function mapFromDocument(
     settings: header.settings,
     terrain: { baseAltitudeM: baseGrid, drawing },
     features: [...header.features],
+    rivers: [...header.rivers],
     createdAt: header.createdAt,
     updatedAt: header.updatedAt,
   };
@@ -165,5 +170,22 @@ function parseHeader(header: Readonly<Record<string, unknown>>): MapHeader {
     updatedAt: requireString(header, 'updatedAt'),
     grids: grids.map(parseGrid),
     features: parseFeatures(header['features']),
+    rivers: parseRivers(header['rivers']),
   };
+}
+
+function parseRivers(value: unknown): DrawnRiver[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new MapFormatError('Liste des fleuves invalide.');
+  const ids = new Set<string>();
+  return value.map((item: unknown, index) => {
+    const invalid = new MapFormatError(`Fleuve n° ${index + 1} invalide.`);
+    if (typeof item !== 'object' || item === null) throw invalid;
+    const { id, pointsKm } = item as Record<string, unknown>;
+    if (typeof id !== 'string' || id === '' || ids.has(id)) throw invalid;
+    if (!Array.isArray(pointsKm) || pointsKm.length < 4 || pointsKm.length % 2 !== 0) throw invalid;
+    if (!pointsKm.every((v: unknown) => typeof v === 'number' && Number.isFinite(v))) throw invalid;
+    ids.add(id);
+    return { id, pointsKm: pointsKm as number[] };
+  });
 }

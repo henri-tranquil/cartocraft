@@ -2,7 +2,9 @@ import { WorldMap } from '../../domain/map/world-map';
 import { CellRect } from '../../domain/terrain/tiled-grid';
 import { cellToScreen, screenToCell, Viewport } from '../viewport';
 import { CoveragePyramid, FOREST_VALUE, RELIEF_VALUE } from './coverage-pyramid';
+import { DrawnRiver } from '../../domain/drawing/drawn-river';
 import { drawDrawingGlyphs, glyphZoom, RELIEF_GLYPH_REACH_PX } from './drawing-glyphs';
+import { buildRiverShapes, inRiver, RiverShapes, waterCoverage } from './river-raster';
 import { DRAWING_TILE_PX, DrawingTileKey, influenceCells, renderDrawingTile, tileCells } from './drawing-tile';
 
 interface CachedTile {
@@ -41,6 +43,10 @@ export class DrawingView {
   private readonly cache = new Map<string, CachedTile>();
   private frame = 0;
   private readonly pixels = new ImageData(DRAWING_TILE_PX, DRAWING_TILE_PX);
+  /** River beds per tile level, rebuilt when the rivers or the drawing change. */
+  private readonly riverShapes = new Map<number, RiverShapes>();
+  /** The rivers the cached tiles were drawn with (items are immutable: identity tells a change). */
+  private drawnRivers: readonly DrawnRiver[] = [];
 
   constructor(private readonly map: WorldMap) {
     this.pyramid = new CoveragePyramid(map.terrain.drawing);
@@ -50,6 +56,8 @@ export class DrawingView {
 
   /** The drawing changed in these cell rectangles. */
   invalidate(rects: readonly CellRect[]): void {
+    // Deltas follow the drawn coast: river beds may change too.
+    if (rects.length > 0) this.riverShapes.clear();
     for (const rect of rects) {
       this.pyramid.update(rect);
       this.reliefPyramid.update(rect);
@@ -71,7 +79,9 @@ export class DrawingView {
       // Moved to a screen of another density: glyph sizes change, start over.
       this.pxScale = devicePixelRatio;
       this.cache.clear();
+      this.riverShapes.clear();
     }
+    this.syncRivers();
     const level = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, Math.ceil(Math.log2(vp.pixelsPerCell * devicePixelRatio))));
     const visible = this.visibleTiles(vp, level);
     let pending = false;
@@ -125,10 +135,13 @@ export class DrawingView {
   private render(key: DrawingTileKey, cached: CachedTile | undefined): void {
     const grid = this.map.terrain.drawing;
     const seed = this.map.settings.seed;
+    const shapes = this.shapesAt(key.level);
+    const water = waterCoverage(shapes, key.tx * DRAWING_TILE_PX - 1, key.ty * DRAWING_TILE_PX - 1, DRAWING_TILE_PX + 2);
     renderDrawingTile(
       { pyramid: this.pyramid, reliefPyramid: this.reliefPyramid, forestPyramid: this.forestPyramid, widthCells: grid.widthCells, heightCells: grid.heightCells, seed },
       key,
       this.pixels.data,
+      water,
     );
     const tile = cached ?? { key, canvas: new OffscreenCanvas(DRAWING_TILE_PX, DRAWING_TILE_PX), stale: false, lastUsed: this.frame };
     const tctx = tile.canvas.getContext('2d');
@@ -145,10 +158,63 @@ export class DrawingView {
     tctx.beginPath();
     tctx.rect(0, 0, inside.w, inside.h);
     tctx.clip();
-    drawDrawingGlyphs(tctx, grid, seed, key.level, key.tx * DRAWING_TILE_PX, key.ty * DRAWING_TILE_PX, DRAWING_TILE_PX, this.glyphPxScale(key.level));
+    const margin = 3 * this.pxScale;
+    drawDrawingGlyphs(tctx, grid, seed, key.level, key.tx * DRAWING_TILE_PX, key.ty * DRAWING_TILE_PX, DRAWING_TILE_PX, this.glyphPxScale(key.level), (x, y) =>
+      inRiver(shapes, x, y, margin),
+    );
     tctx.restore();
     tile.stale = false;
     this.cache.set(id(key), tile);
+  }
+
+  private shapesAt(level: number): RiverShapes {
+    let shapes = this.riverShapes.get(level);
+    if (!shapes) {
+      const map = this.map;
+      shapes = buildRiverShapes(map.rivers, map.terrain.drawing, map.settings.baseCellKm, level, map.settings.seed);
+      this.riverShapes.set(level, shapes);
+    }
+    return shapes;
+  }
+
+  /**
+   * Rivers changed (traced, extended, erased, undone): re-render the tiles
+   * near the old and the new ones. A tributary also widens its main river
+   * downstream, so every river's area is refreshed, not only the edited one.
+   */
+  private syncRivers(): void {
+    const rivers = this.map.rivers;
+    if (rivers.length === this.drawnRivers.length && rivers.every((r, i) => r === this.drawnRivers[i])) return;
+    const cellKm = this.map.settings.baseCellKm;
+    const marginKm = 100; // deltas and estuaries reach this far around a course
+    const rects: CellRect[] = [];
+    for (const river of [...this.drawnRivers, ...rivers]) {
+      const p = river.pointsKm;
+      let x0 = Infinity;
+      let y0 = Infinity;
+      let x1 = -Infinity;
+      let y1 = -Infinity;
+      for (let i = 0; i < p.length; i += 2) {
+        x0 = Math.min(x0, p[i]);
+        x1 = Math.max(x1, p[i]);
+        y0 = Math.min(y0, p[i + 1]);
+        y1 = Math.max(y1, p[i + 1]);
+      }
+      rects.push({
+        x0: Math.floor((x0 - marginKm) / cellKm),
+        y0: Math.floor((y0 - marginKm) / cellKm),
+        x1: Math.ceil((x1 + marginKm) / cellKm),
+        y1: Math.ceil((y1 + marginKm) / cellKm),
+      });
+    }
+    this.drawnRivers = [...rivers];
+    this.riverShapes.clear();
+    for (const tile of this.cache.values()) {
+      const size = tileCells(tile.key.level);
+      const tx0 = tile.key.tx * size;
+      const ty0 = tile.key.ty * size;
+      if (rects.some((r) => r.x1 >= tx0 && r.x0 < tx0 + size && r.y1 >= ty0 && r.y0 < ty0 + size)) tile.stale = true;
+    }
   }
 
   /** Device px per glyph unit at a level: screen density × zoom growth. */

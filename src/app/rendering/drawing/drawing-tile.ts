@@ -37,6 +37,9 @@ export const DRAWING_STYLE = {
   ink: [52, 38, 24] as Rgb,
 } as const;
 
+/** Noise amplitude on the river banks' soft coverage (like `coastNoise` for the land). */
+const RIVER_BANK_NOISE = 0.35;
+
 /** Smooth fields are sampled every this many pixels, then interpolated. */
 const LATTICE_STEP = 4;
 
@@ -74,7 +77,12 @@ export function influenceCells(level: number, maxLevel: number, glyphReachPx = 0
  * (1-pixel coastline at every zoom); sea = mottled teal lightened by the
  * coarse land fraction (glow); land = parchment, darker close to the shore.
  */
-export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, out: Uint8ClampedArray): void {
+/**
+ * `water`: optional soft river coverage of the tile plus its 1-pixel margin
+ * ((N+2)², 0..1): thresholded at ½ with the coast's own noise, so river banks
+ * are as organic as the coast; water pixels are drawn like the sea.
+ */
+export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, out: Uint8ClampedArray, water: Float32Array | null = null): void {
   const N = DRAWING_TILE_PX;
   const M = N + 2; // 1-pixel margin so the coastline test sees across tile borders
   const pxPerCell = 2 ** key.level;
@@ -99,8 +107,16 @@ export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, 
     for (let i = 0; i < M; i++) {
       const x = (originX + i + 0.5) * cellsPerPx;
       let v = pyramid.sample(landLevel, x, y);
-      if (noisy && v > 0.5 - amp && v < 0.5 + amp) v += (fbm(seed, x / period, y / period, noiseOctaves) - 0.5) * 2 * amp;
-      land[j * M + i] = v > 0.5 ? 1 : 0;
+      let c = water ? water[j * M + i] : 0;
+      const coastBand = v > 0.5 - amp && v < 0.5 + amp;
+      const bankBand = c > 0.5 - RIVER_BANK_NOISE && c < 0.5 + RIVER_BANK_NOISE;
+      if (noisy && (coastBand || bankBand)) {
+        const n = (fbm(seed, x / period, y / period, noiseOctaves) - 0.5) * 2;
+        if (coastBand) v += n * amp;
+        // Opposite sign: where the coast bulges out, a bank bites in; same texture on both.
+        if (bankBand) c -= n * RIVER_BANK_NOISE;
+      }
+      land[j * M + i] = v > 0.5 && c <= 0.5 ? 1 : 0;
     }
   }
 

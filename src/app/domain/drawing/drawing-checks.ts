@@ -1,6 +1,7 @@
 import { latitudeAtRow } from '../map/latitude';
 import { MapSettings } from '../map/map-settings';
 import { Int16TiledGrid } from '../terrain/tiled-grid';
+import { DrawnRiver, riverEnd } from './drawn-river';
 import { FOREST_KINDS, ForestKind, forestIndexOf, isLandCode, reliefIndexOf } from './drawing-cell';
 
 /**
@@ -9,6 +10,8 @@ import { FOREST_KINDS, ForestKind, forestIndexOf, isLandCode, reliefIndexOf } fr
  */
 export type DrawingWarning =
   | { readonly kind: 'noLand' }
+  /** Rivers ending neither in the sea (or an inland sea: a lake) nor on another river. */
+  | { readonly kind: 'riverEndsInland'; readonly count: number }
   | {
       /** Forest painted where its trees would not grow: too cold or too warm for that kind. */
       readonly kind: 'forestTooCold' | 'forestTooWarm';
@@ -30,9 +33,9 @@ export const FOREST_LATITUDE_LIMITS: Readonly<Record<Exclude<ForestKind, 'none'>
   tropical: { maxDeg: 28, lowlandMinDeg: 0 },
 };
 
-type Latitudes = Pick<MapSettings, 'latitudeTopDeg' | 'latitudeBottomDeg'>;
+type CheckedSettings = Pick<MapSettings, 'latitudeTopDeg' | 'latitudeBottomDeg' | 'baseCellKm'>;
 
-export function checkDrawing(drawing: Int16TiledGrid, settings: Latitudes): DrawingWarning[] {
+export function checkDrawing(drawing: Int16TiledGrid, settings: CheckedSettings, rivers: readonly DrawnRiver[] = []): DrawingWarning[] {
   // Per forest kind (index 1..3): [cold count, cold Σlat, warm count, warm Σlat].
   const stats = Array.from({ length: FOREST_KINDS.length }, () => [0, 0, 0, 0]);
   let land = false;
@@ -73,5 +76,7 @@ export function checkDrawing(drawing: Int16TiledGrid, settings: Latitudes): Draw
     if (cold > 0) warnings.push({ kind: 'forestTooCold', forest, cells: cold, latitudeDeg: coldLat / cold });
     if (warm > 0) warnings.push({ kind: 'forestTooWarm', forest, cells: warm, latitudeDeg: warmLat / warm });
   }
+  const inland = rivers.filter((r) => riverEnd(r, rivers, drawing, settings.baseCellKm) === 'inland').length;
+  if (inland > 0) warnings.push({ kind: 'riverEndsInland', count: inland });
   return warnings;
 }

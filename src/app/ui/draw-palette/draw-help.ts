@@ -9,6 +9,10 @@ function warningText(warning: DrawingWarning, cellKm: number): string {
   switch (warning.kind) {
     case 'noLand':
       return 'Aucune terre pour l’instant : commence avec l’outil Terre (touche T) et peins un continent.';
+    case 'riverEndsInland':
+      return warning.count === 1
+        ? 'Un fleuve s’arrête dans les terres : prolonge-le jusqu’à la mer, un lac (mer intérieure) ou un autre fleuve.'
+        : `${warning.count} fleuves s’arrêtent dans les terres : prolonge-les jusqu’à la mer, un lac (mer intérieure) ou un autre fleuve.`;
     case 'forestTooCold':
     case 'forestTooWarm': {
       const name = FOREST_NAME[warning.forest];

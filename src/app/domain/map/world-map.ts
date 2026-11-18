@@ -1,3 +1,4 @@
+import { DrawnRiver } from '../drawing/drawn-river';
 import { MapFeature } from '../features/map-feature';
 import { Int16TiledGrid } from '../terrain/tiled-grid';
 import { MapSettings } from './map-settings';
@@ -40,6 +41,8 @@ export interface WorldMap {
   readonly terrain: TerrainData;
   /** Named places, edited in place by FeatureEditCommand (the array is mutable, its items are not). */
   readonly features: MapFeature[];
+  /** Rivers traced on the drawing (source → mouth), edited by DrawnRiverEditCommand. */
+  readonly rivers: DrawnRiver[];
   readonly createdAt: string;
   updatedAt: string;
 }

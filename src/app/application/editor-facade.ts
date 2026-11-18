@@ -44,6 +44,8 @@ import {
   SmoothTerrainTool,
 } from './tools/terrain-brush-tools';
 import { DrawingBrushOptions, DrawingBrushTool } from './tools/drawing-brush-tool';
+import { RiverDrawTool, RiverEraseTool } from './tools/river-tools';
+import { RiverSnap } from '../domain/drawing/drawn-river';
 import { checkDrawing, DrawingWarning } from '../domain/drawing/drawing-checks';
 import { ForestKind, ReliefClass } from '../domain/drawing/drawing-cell';
 
@@ -68,7 +70,7 @@ export type ToolId = 'pan' | 'raise' | 'lower' | 'smooth';
 export type Workspace = 'draw' | 'world';
 
 /** Tools of the Draw step. 'pan' moves the map. */
-export type DrawToolId = 'pan' | 'land' | 'sea' | ReliefClass | ForestToolId;
+export type DrawToolId = 'pan' | 'land' | 'sea' | ReliefClass | ForestToolId | 'river' | 'riverErase';
 /** Forest brushes; `clearing` removes the trees. */
 export type ForestToolId = Exclude<ForestKind, 'none'> | 'clearing';
 
@@ -122,6 +124,14 @@ export class EditorFacade {
   private readonly activeToolState = signal<ToolId>('raise');
   private readonly workspaceState = signal<Workspace>('draw');
   private readonly drawToolState = signal<DrawToolId>('land');
+  /** Km per screen pixel, set by the canvas: tools that pick or simplify need the zoom. */
+  private readonly kmPerPxState = signal(1);
+  private readonly riverTool = new RiverDrawTool(
+    () => this.kmPerPxState(),
+    (points) => this.riverPreviewState.set(points),
+  );
+  /** The river being traced (km), shown raw until the pointer is released. */
+  private readonly riverPreviewState = signal<readonly number[] | null>(null);
   private readonly drawingBrushState = signal<DrawingBrushOptions>({ radiusKm: 30, roughness: 0.6 });
   /** False while a non-editing panel (maps, climate) is shown: the map can only be panned. */
   private readonly editingEnabledState = signal(true);
@@ -150,6 +160,8 @@ export class EditorFacade {
     conifer: this.forestTool('Planter des résineux', 'conifer'),
     tropical: this.forestTool('Planter une forêt tropicale', 'tropical'),
     clearing: this.forestTool('Défricher', 'none'),
+    river: this.riverTool,
+    riverErase: new RiverEraseTool(() => this.kmPerPxState()),
   };
   private gestureTool: EditorTool | null = null;
   private holdTimer: ReturnType<typeof setInterval> | null = null;
@@ -197,7 +209,8 @@ export class EditorFacade {
   readonly pointerTool = computed<ToolId | DrawToolId>(() => (this.workspaceState() === 'draw' ? this.drawToolState() : this.effectiveTool()));
   /** Radius of the brush circle drawn under the pointer, or null when the press moves the map. */
   readonly cursorRadiusKm = computed(() => {
-    if (this.pointerTool() === 'pan') return null;
+    const tool = this.pointerTool();
+    if (tool === 'pan' || tool === 'river' || tool === 'riverErase') return null;
     return this.workspaceState() === 'draw' ? this.drawingBrushState().radiusKm : this.brushState().radiusKm;
   });
 
@@ -228,10 +241,11 @@ export class EditorFacade {
   /** Rivers (null until the first climate run of the map). */
   readonly renderHydrology = this.climate.hydrology;
   /** Checks of the drawing, refreshed after each finished gesture or undo (not during a stroke: it scans the grid). */
+  readonly riverPreview = this.riverPreviewState.asReadonly();
   readonly drawingWarnings = computed<readonly DrawingWarning[]>(() => {
     this.historyRevision();
     const map = this.store.map();
-    return map ? checkDrawing(map.terrain.drawing, map.settings) : [];
+    return map ? checkDrawing(map.terrain.drawing, map.settings, map.rivers) : [];
   });
   readonly undoLabel = computed(() => {
     this.historyRevision();
@@ -533,6 +547,18 @@ export class EditorFacade {
 
   setWorkspace(workspace: Workspace): void {
     if (!this.gestureTool) this.workspaceState.set(workspace);
+  }
+
+  /** River tool magnet under the pointer: where a stroke starting there would attach (null: nowhere, or not the river tool). */
+  riverSnapAt(point: CellPoint): RiverSnap | null {
+    const map = this.store.map();
+    if (!map || this.pointerTool() !== 'river' || this.gestureTool) return null;
+    return this.riverTool.snapAt(map, point);
+  }
+
+  /** The canvas reports its scale (km per CSS pixel) whenever the view changes. */
+  setKmPerPx(kmPerPx: number): void {
+    this.kmPerPxState.set(kmPerPx);
   }
 
   selectDrawTool(id: DrawToolId): void {

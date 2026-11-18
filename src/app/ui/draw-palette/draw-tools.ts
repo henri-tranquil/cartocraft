@@ -130,8 +130,24 @@ export const DRAW_GROUPS: readonly DrawToolGroup[] = [
   {
     step: 4,
     title: 'Eaux',
-    soon: 'bientôt',
-    tools: [{ id: null, icon: 'river', label: 'Fleuve', description: 'Tracer un fleuve de la source à la mer.' }],
+    tools: [
+      {
+        id: 'river',
+        icon: 'river',
+        label: 'Fleuve',
+        key: 'R',
+        description: 'Appuie à la source et glisse jusqu’à la mer, puis relâche. Le tracé est lissé tout seul.',
+        hint: 'Aimant : pars d’un rond orange (bout d’un fleuve) pour le prolonger, d’un rond blanc (sur son cours) pour lui ajouter un affluent. Dépasser la côte ne gêne pas. Trace de la source vers la mer ; parti de la mer ou d’un fleuve, le tracé est retourné tout seul. Le fleuve s’élargit vers l’aval avec sa longueur et ses affluents.',
+      },
+      {
+        id: 'riverErase',
+        icon: 'trash',
+        label: 'Effacer un fleuve',
+        key: 'E',
+        description: 'Clique sur un fleuve pour le supprimer.',
+        hint: 'Ses affluents restent : ils sont signalés dans « À vérifier » s’ils ne finissent plus nulle part.',
+      },
+    ],
   },
 ];
 

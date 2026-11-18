@@ -1,3 +1,4 @@
+import { drawRiverMagnet, drawRiverPreview } from '../../rendering/drawing/drawn-river-layer';
 import {
   afterNextRender,
   ChangeDetectionStrategy,
@@ -189,7 +190,15 @@ export class MapCanvas {
       this.facade.selectedFeatureId();
       this.draggedFeature();
       this.lasso();
+      this.facade.riverPreview();
       this.requestDraw();
+    });
+
+    // Tools that pick or simplify need the scale.
+    effect(() => {
+      const map = this.facade.renderMap();
+      const vp = this.viewport();
+      if (map && vp) this.facade.setKmPerPx(map.settings.baseCellKm / vp.pixelsPerCell);
     });
 
     // Remember the camera of the current map (debounced: panning fires many changes).
@@ -442,6 +451,10 @@ export class MapCanvas {
     if (this.drawingView?.map !== map) this.drawingView = { view: new DrawingView(map), map };
     else this.drawingView.view.invalidate(dirty);
     const pending = this.drawingView.view.draw(ctx, vp, dpr);
+    drawRiverPreview(ctx, vp, this.facade.riverPreview(), map.settings.baseCellKm);
+    const hover = this.hover();
+    const magnet = hover ? this.facade.riverSnapAt(hover) : null;
+    if (magnet) drawRiverMagnet(ctx, vp, magnet, map.settings.baseCellKm);
     this.drawBrushCursor(ctx, vp, map);
     this.drawNames(ctx, vp, map);
     if (pending) this.requestDraw();

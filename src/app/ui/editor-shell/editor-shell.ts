@@ -169,7 +169,7 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
         @if (facade.hasMap()) {
           <div class="frame">
             <div class="frame-inner"><cc-map-canvas /></div>
-            @if (facade.workspace() === 'draw' && facade.drawTool() !== 'pan') {
+            @if (facade.workspace() === 'draw' && facade.cursorRadiusKm() !== null) {
               <cc-brush-bar class="brush" />
             }
           </div>

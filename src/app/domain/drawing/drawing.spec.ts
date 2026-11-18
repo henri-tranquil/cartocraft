@@ -76,7 +76,7 @@ describe('drawingFromAltitudes', () => {
 });
 
 describe('checkDrawing', () => {
-  const latitudes = { latitudeTopDeg: 60, latitudeBottomDeg: 0 }; // 40 rows: 1.5° per row
+  const latitudes = { latitudeTopDeg: 60, latitudeBottomDeg: 0, baseCellKm: 1 }; // 40 rows: 1.5° per row
   const dab = (grid: ReturnType<typeof createInt16TiledGrid>, x: number, y: number, r: number, paint: DrawingPaint) =>
     paintDrawing(grid, { center: { x, y }, radiusCells: r, roughness: 0, cellKm: 1, seed: 1 }, paint);
 

@@ -36,6 +36,7 @@ export const MapFactory = {
         drawing: createInt16TiledGrid(widthCells, heightCells, SEA_CELL),
       },
       features: [],
+      rivers: [],
       createdAt: identity.nowIso,
       updatedAt: identity.nowIso,
     };
