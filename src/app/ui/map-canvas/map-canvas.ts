@@ -25,7 +25,7 @@ import { cellToScreen, fitViewport, panBy, resize, screenToCell, Viewport, zoomA
 import { loadView, saveView } from './view-memory';
 import { drawWindOverlay } from '../../rendering/wind-overlay';
 import { windFromDirection } from '../../domain/climate/wind';
-import { drawLatitudeOverlay, LatitudeHandle, latitudeScreenY, PIN_HIT_TOLERANCE_PX, pinScreenY, tiltLines } from '../../rendering/latitude-overlay';
+import { drawLatitudeOverlay, LatitudeHandle, latitudeScreenY, PIN_HIT_TOLERANCE_PX, pinScreenY, rulerContains, tiltLines } from '../../rendering/latitude-overlay';
 import { latitudeAtRow } from '../../domain/map/latitude';
 import { canvasTextMeasure, drawLabels, drawLasso, drawZoneOutlines, labelAt, layoutLabels, PlacedLabel } from '../../rendering/label-layer';
 import { drawRivers, EDIT_RIVER_STYLE, VINTAGE_RIVER_STYLE, visibleDischargeM3s } from '../../rendering/river-layer';
@@ -34,6 +34,9 @@ import { geometryOf } from '../../domain/features/map-feature';
 import { LABEL_STYLE } from '../../rendering/style/label-style';
 
 const WHEEL_ZOOM_SPEED = 0.0015;
+/** Ruler scroll per unit of wheel delta (screen px), and rest time before the shift becomes a command. */
+const RULER_WHEEL_PX = 0.5;
+const RULER_WHEEL_COMMIT_MS = 400;
 const VIEW_SAVE_DEBOUNCE_MS = 400;
 /** Outside the map: same parchment as the frame. */
 const BACKGROUND = '#e2cfa6';
@@ -124,8 +127,11 @@ export class MapCanvas {
   private panning: { pointerId: number; lastX: number; lastY: number } | null = null;
   private viewSaveTimer: ReturnType<typeof setTimeout> | null = null;
   /** Latitude pin being dragged, or hovered (for the highlight and the cursor). */
-  private pinDrag: { pointerId: number; index: LatitudeHandle } | null = null;
+  private pinDrag: { pointerId: number; index: LatitudeHandle; lastY: number } | null = null;
+  /** Wheel over the ruler: latitudes shifted live, committed once the wheel rests. */
+  private rulerWheelTimer: ReturnType<typeof setTimeout> | null = null;
   protected readonly hoveredPin = signal<LatitudeHandle | null>(null);
+  private readonly pinDragging = signal(false);
   /** Names drawn in the last frame, for clicks (what you see is what you can click). */
   private placedLabels: PlacedLabel[] = [];
   /** Press in the Names section: on a name (drag = move it) or on empty map (click = new place, drag = pan). */
@@ -136,7 +142,9 @@ export class MapCanvas {
   private readonly lasso = signal<readonly number[] | null>(null);
 
   protected readonly cursor = computed(() => {
-    if (this.hoveredPin() !== null) return 'ns-resize';
+    const pin = this.hoveredPin();
+    if (pin === 'ruler') return this.pinDragging() ? 'grabbing' : 'grab';
+    if (pin !== null) return 'ns-resize';
     if (this.facade.namesEditing()) return this.hoveringLabel() ? 'move' : geometryOf(this.facade.newPlaceTemplate()) === 'point' ? 'copy' : 'crosshair';
     return this.facade.pointerTool() === 'pan' ? 'grab' : 'crosshair';
   });
@@ -231,9 +239,10 @@ export class MapCanvas {
     const vp = this.viewport();
     if (!vp) return;
     this.canvasRef().nativeElement.setPointerCapture(event.pointerId);
-    const pin = event.button === 0 ? this.pinAt(vp, event.offsetY) : null;
+    const pin = event.button === 0 ? this.pinAt(vp, event.offsetX, event.offsetY) : null;
     if (pin !== null) {
-      this.pinDrag = { pointerId: event.pointerId, index: pin };
+      this.pinDrag = { pointerId: event.pointerId, index: pin, lastY: event.offsetY };
+      this.pinDragging.set(true);
       return;
     }
     if (event.button === 0 && this.facade.namesEditing()) {
@@ -261,6 +270,10 @@ export class MapCanvas {
       const handle = this.pinDrag.index;
       if (handle === 0 || handle === 1) {
         this.facade.moveLatitudePin(handle, yCell);
+      } else if (handle === 'ruler') {
+        // The graduation under the pointer follows it: same scale, shifted latitudes.
+        this.scrollRuler(vp, event.offsetY - this.pinDrag.lastY);
+        this.pinDrag.lastY = event.offsetY;
       } else {
         // Tropic at ±tilt, polar circle at ±(90° − tilt): the latitude under the pointer gives the tilt.
         const edges = this.facade.displayedLatitudes();
@@ -293,7 +306,7 @@ export class MapCanvas {
       return;
     }
     if (this.facade.namesEditing()) this.hoveringLabel.set(labelAt(this.placedLabels, event.offsetX, event.offsetY) !== null);
-    if (!this.panning) this.hoveredPin.set(this.pinAt(vp, event.offsetY));
+    if (!this.panning) this.hoveredPin.set(this.pinAt(vp, event.offsetX, event.offsetY));
     if (this.panning?.pointerId === event.pointerId) {
       this.viewport.set(panBy(vp, event.offsetX - this.panning.lastX, event.offsetY - this.panning.lastY));
       this.panning = { ...this.panning, lastX: event.offsetX, lastY: event.offsetY };
@@ -308,7 +321,8 @@ export class MapCanvas {
     if (this.pinDrag?.pointerId === event.pointerId) {
       const handle = this.pinDrag.index;
       this.pinDrag = null;
-      if (handle === 0 || handle === 1) this.facade.commitLatitudes();
+      this.pinDragging.set(false);
+      if (handle === 0 || handle === 1 || handle === 'ruler') this.facade.commitLatitudes();
       else this.facade.commitTiltPreview();
       return;
     }
@@ -352,9 +366,28 @@ export class MapCanvas {
     const vp = this.viewport();
     const map = this.facade.renderMap();
     if (!vp || !map) return;
+    if (this.facade.latitudePins() && rulerContains(vp, map.terrain.baseAltitudeM.widthCells, map.terrain.baseAltitudeM.heightCells, event.offsetX, event.offsetY)) {
+      // Over the ruler, the wheel scrolls it like a page instead of zooming.
+      this.scrollRuler(vp, -event.deltaY * RULER_WHEEL_PX);
+      if (this.rulerWheelTimer) clearTimeout(this.rulerWheelTimer);
+      this.rulerWheelTimer = setTimeout(() => {
+        this.rulerWheelTimer = null;
+        this.facade.commitLatitudes();
+      }, RULER_WHEEL_COMMIT_MS);
+      return;
+    }
     const grid = map.terrain.baseAltitudeM;
     const limits = zoomLimits(grid.widthCells, grid.heightCells, map.settings.baseCellKm, vp);
     this.viewport.set(zoomAt(vp, event.offsetX, event.offsetY, Math.exp(-event.deltaY * WHEEL_ZOOM_SPEED), limits));
+  }
+
+  /** Moves the ruler's graduations by `dyPx` screen px (down = positive): the latitudes shift, the scale stays. */
+  private scrollRuler(vp: Viewport, dyPx: number): void {
+    const edges = this.facade.displayedLatitudes();
+    const map = this.facade.renderMap();
+    if (!edges || !map) return;
+    const degPerCell = (edges.latitudeBottomDeg - edges.latitudeTopDeg) / map.terrain.baseAltitudeM.heightCells;
+    this.facade.shiftLatitudePins((-degPerCell * dyPx) / vp.pixelsPerCell);
   }
 
   // --- Drawing ---
@@ -431,6 +464,11 @@ export class MapCanvas {
     this.drawBrushCursor(ctx, vp, map);
     this.drawNames(ctx, vp, map);
 
+    this.drawLatitudes(ctx, vp, map);
+  }
+
+  /** Latitude ruler and pins, over either step. */
+  private drawLatitudes(ctx: CanvasRenderingContext2D, vp: Viewport, map: WorldMap): void {
     const pins = this.facade.latitudePins();
     const edges = this.facade.displayedLatitudes();
     if (pins && edges) {
@@ -457,6 +495,7 @@ export class MapCanvas {
     if (magnet) drawRiverMagnet(ctx, vp, magnet, map.settings.baseCellKm);
     this.drawBrushCursor(ctx, vp, map);
     this.drawNames(ctx, vp, map);
+    this.drawLatitudes(ctx, vp, map);
     if (pending) this.requestDraw();
   }
 
@@ -508,7 +547,7 @@ export class MapCanvas {
   }
 
   /** Which ruler handle (pin, tropic, polar circle) is within reach of screen row `sy`; pins win ties. */
-  private pinAt(vp: Viewport, sy: number): LatitudeHandle | null {
+  private pinAt(vp: Viewport, sx: number, sy: number): LatitudeHandle | null {
     const pins = this.facade.latitudePins();
     const edges = this.facade.displayedLatitudes();
     const tilt = this.facade.displayedTilt();
@@ -532,7 +571,9 @@ export class MapCanvas {
         bestDistance = d;
       }
     }
-    return best;
+    if (best !== null) return best;
+    const grid = map.terrain.baseAltitudeM;
+    return rulerContains(vp, grid.widthCells, grid.heightCells, sx, sy) ? 'ruler' : null;
   }
 
   protected fitToMap(): void {

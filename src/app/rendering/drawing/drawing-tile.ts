@@ -1,6 +1,7 @@
 import { fbm, hash2 } from '../../domain/terrain/noise';
 import { Rgb, VINTAGE } from '../style/vintage-style';
 import { CoveragePyramid } from './coverage-pyramid';
+import { reliefCoolingC, ZonalRows } from '../../domain/drawing/drawing-climate';
 
 /** Side of a rendered tile, in pixels (device pixels). */
 export const DRAWING_TILE_PX = 256;
@@ -48,6 +49,8 @@ export interface DrawingTileContext {
   /** Mean relief class (see RELIEF_VALUE): a light ochre wash on relief zones, readable from afar. */
   readonly reliefPyramid: CoveragePyramid;
   readonly forestPyramid: CoveragePyramid;
+  /** Climate guessed from the latitude (one value per cell row): the ground colour. */
+  readonly zonal: ZonalRows;
   readonly widthCells: number;
   readonly heightCells: number;
   readonly seed: number;
@@ -128,6 +131,9 @@ export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, 
   const edges = new Float32Array(L * L);
   const reliefs = new Float32Array(L * L);
   const forests = new Float32Array(L * L);
+  const wets = new Float32Array(L * L);
+  const colds = new Float32Array(L * L);
+  const { wetnessPct, warmestC } = ctx.zonal;
   const reliefLevel = Math.max(0, Math.min(ctx.reliefPyramid.maxLevel, -key.level + 1));
   for (let b = 0; b < L; b++) {
     const y = (originY + 1 + b * LATTICE_STEP + 0.5) * cellsPerPx;
@@ -138,6 +144,10 @@ export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, 
       edges[b * L + a] = pyramid.sample(edgeLevel, x, y);
       reliefs[b * L + a] = ctx.reliefPyramid.sample(reliefLevel, x, y);
       forests[b * L + a] = ctx.forestPyramid.sample(reliefLevel, x, y);
+      // Same wash as the rendered view: dry → wet by latitude, pale where summers are cold (high or far north).
+      const row = Math.max(0, Math.min(heightCells - 1, Math.floor(y)));
+      wets[b * L + a] = smoothstep(VINTAGE.washDryPct, VINTAGE.washWetPct, wetnessPct[row]);
+      colds[b * L + a] = 1 - smoothstep(VINTAGE.washColdC, VINTAGE.washMildC, warmestC[row] - reliefCoolingC(reliefs[b * L + a]));
     }
   }
 
@@ -147,6 +157,9 @@ export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, 
   const [shalR, shalG, shalB] = VINTAGE.seaShallow;
   const [parR, parG, parB] = VINTAGE.parchment;
   const [edgR, edgG, edgB] = VINTAGE.parchmentEdge;
+  const [dryR, dryG, dryB] = VINTAGE.landDry;
+  const [wetR, wetG, wetB] = VINTAGE.landWet;
+  const [colR, colG, colB] = VINTAGE.landCold;
   const [relR, relG, relB] = DRAWING_STYLE.reliefWash;
   const [forR, forG, forB] = DRAWING_STYLE.forestWash;
   const [inkR, inkG, inkB] = DRAWING_STYLE.ink;
@@ -186,9 +199,22 @@ export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, 
         const shade = 1 + (stain - 0.5) * 2 * VINTAGE.landStainStrength;
         const u = bilerp(reliefs, k, L, fx, fy) * DRAWING_STYLE.reliefWashStrength;
         const f = bilerp(forests, k, L, fx, fy) * DRAWING_STYLE.forestWashStrength;
-        r = (parR + (relR - parR) * u + (forR - parR) * f + (edgR - parR) * t) * shade;
-        g = (parG + (relG - parG) * u + (forG - parG) * f + (edgG - parG) * t) * shade;
-        b = (parB + (relB - parB) * u + (forB - parB) * f + (edgB - parB) * t) * shade;
+        // Ground: parchment under a climate wash, uneven like watercolour (the stains modulate it).
+        const wet = bilerp(wets, k, L, fx, fy);
+        const cold = bilerp(colds, k, L, fx, fy);
+        let tr = dryR + (wetR - dryR) * wet;
+        let tg = dryG + (wetG - dryG) * wet;
+        let tb = dryB + (wetB - dryB) * wet;
+        tr += (colR - tr) * cold;
+        tg += (colG - tg) * cold;
+        tb += (colB - tb) * cold;
+        const w = VINTAGE.washStrength * (0.25 + stain);
+        const gr = parR + (tr - parR) * w;
+        const gg = parG + (tg - parG) * w;
+        const gb = parB + (tb - parB) * w;
+        r = (gr + (relR - gr) * u + (forR - gr) * f + (edgR - gr) * t) * shade;
+        g = (gg + (relG - gg) * u + (forG - gg) * f + (edgG - gg) * t) * shade;
+        b = (gb + (relB - gb) * u + (forB - gb) * f + (edgB - gb) * t) * shade;
       } else {
         const s = smoothstep(0.25, 0.75, stain);
         r = deepR + (openR - deepR) * s;

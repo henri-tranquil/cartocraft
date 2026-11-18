@@ -12,8 +12,11 @@ export interface LatitudeOverlayInput {
   readonly active: LatitudeHandle | null;
 }
 
-/** What can be dragged on the ruler: one of the two pins, or the tilt lines (tropics, polar circles). */
-export type LatitudeHandle = 0 | 1 | 'tropic' | 'polar';
+/**
+ * What can be dragged on the ruler: one of the two pins, the tilt lines
+ * (tropics, polar circles), or the ruler itself (scrolls the latitudes, scale kept).
+ */
+export type LatitudeHandle = 0 | 1 | 'tropic' | 'polar' | 'ruler';
 
 /** Latitudes of the lines set by the axial tilt: tropics at ±tilt, polar circles at ±(90° − tilt). */
 export function tiltLines(axialTiltDeg: number): { latitudeDeg: number; kind: 'tropic' | 'polar'; name: string }[] {
@@ -37,6 +40,15 @@ const MIN_LABEL_SPACING_PX = 32;
 const STEPS_DEG = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30];
 const FONT = '600 11px "Space Grotesk", sans-serif';
 export const PIN_HIT_TOLERANCE_PX = 8;
+
+/** Is the screen point on the ruler strip (left edge of the visible map)? */
+export function rulerContains(vp: Viewport, widthCells: number, heightCells: number, sx: number, sy: number): boolean {
+  const left = Math.max(0, cellToScreen(vp, 0, 0).x);
+  const right = Math.min(vp.widthPx, cellToScreen(vp, widthCells, 0).x);
+  const top = Math.max(0, cellToScreen(vp, 0, 0).y);
+  const bottom = Math.min(vp.heightPx, cellToScreen(vp, 0, heightCells).y);
+  return sx >= left && sx <= Math.min(right, left + RULER_WIDTH_PX) && sy >= top && sy <= bottom;
+}
 
 export function pinScreenY(vp: Viewport, pin: LatitudePin): number {
   return cellToScreen(vp, 0, pin.yCell).y;
@@ -105,8 +117,9 @@ function drawNotableParallels(
 function drawRuler(ctx: CanvasRenderingContext2D, vp: Viewport, input: LatitudeOverlayInput, left: number, top: number, bottom: number): void {
   ctx.fillStyle = PANEL;
   ctx.fillRect(left, top, RULER_WIDTH_PX, bottom - top);
-  ctx.strokeStyle = INK;
-  ctx.lineWidth = 2;
+  const active = input.active === 'ruler';
+  ctx.strokeStyle = active ? ACTIVE : INK;
+  ctx.lineWidth = active ? 3 : 2;
   ctx.strokeRect(left + 1, top + 1, RULER_WIDTH_PX - 2, bottom - top - 2);
 
   const degPerPx = Math.abs(input.latitudeBottomDeg - input.latitudeTopDeg) / input.heightCells / vp.pixelsPerCell;

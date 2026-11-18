@@ -464,6 +464,24 @@ export class EditorFacade {
     this.latitudePinsState.set(replacePin(pins, index, { ...pins[index], yCell: clamp(yCell, 0, h) }));
   }
 
+  /**
+   * Live scroll of the ruler: both pins gain the same latitude, so the scale
+   * (degrees per km) is kept and only the position changes. Clamped so that
+   * the map stays within ±90°. Preview only: `commitLatitudes` applies it.
+   */
+  shiftLatitudePins(deltaDeg: number): void {
+    const pins = this.latitudePinsState();
+    const map = this.store.map();
+    if (!pins || !map || !Number.isFinite(deltaDeg)) return;
+    const edges = latitudesFromPins(pins[0], pins[1], map.terrain.baseAltitudeM.heightCells);
+    if (!edges) return;
+    const high = Math.max(edges.latitudeTopDeg, edges.latitudeBottomDeg);
+    const low = Math.min(edges.latitudeTopDeg, edges.latitudeBottomDeg);
+    const delta = clamp(deltaDeg, -90 - low, 90 - high);
+    const shift = (p: LatitudePin): LatitudePin => ({ ...p, latitudeDeg: round2(p.latitudeDeg + delta) });
+    this.latitudePinsState.set([shift(pins[0]), shift(pins[1])]);
+  }
+
   setLatitudePinValue(index: 0 | 1, latitudeDeg: number): void {
     const pins = this.latitudePinsState();
     if (!pins || !Number.isFinite(latitudeDeg)) return;

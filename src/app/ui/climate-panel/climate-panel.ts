@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { ClimateStatus } from '../../application/climate';
-import { EditorFacade, MAX_TILT_DEG, ViewMode } from '../../application/editor-facade';
+import { EditorFacade, ViewMode } from '../../application/editor-facade';
 import { BeyondEdge, BeyondEdges } from '../../domain/map/map-settings';
 import {
   temperatureLegendGradient,
@@ -9,7 +9,7 @@ import {
   TEMPERATURE_PALETTE_MIN_C,
 } from '../../rendering/style/temperature-palette';
 import { Icon, IconName } from '../icon/icon';
-import { formatLatitude } from '../../domain/map/latitude';
+import { LatitudePanel } from '../latitude-panel/latitude-panel';
 import { precipitationLegendGradient } from '../../rendering/style/climate-palettes';
 
 const MONTH_NAMES = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
@@ -38,7 +38,7 @@ function monthOf(phase: number): number {
 @Component({
   selector: 'cc-climate-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DecimalPipe, Icon],
+  imports: [DecimalPipe, Icon, LatitudePanel],
   template: `
     <div class="views" role="radiogroup" aria-label="Vue de la carte">
       @for (view of views; track view.id) {
@@ -56,51 +56,7 @@ function monthOf(phase: number): number {
       }
     </div>
 
-    <section class="lat cc-panel" aria-label="Latitudes">
-      <div class="lat-head">
-        <span class="slider-head"><cc-icon name="compass" [size]="13" [strokeWidth]="2.4" /> Latitudes</span>
-        <button
-          type="button"
-          class="cc-btn shape-galet ruler-btn"
-          [attr.aria-pressed]="!!facade.latitudePins()"
-          title="Afficher l’échelle graduée et placer deux repères sur la carte"
-          (click)="toggleRuler()"
-        >
-          <span class="cc-caption">{{ facade.latitudePins() ? 'Fermer' : 'Régler' }}</span>
-        </button>
-      </div>
-      @if (facade.latitudePins(); as pins) {
-        <p class="hint">Glisse les deux repères sur la carte et donne leur latitude (négatif = sud). Glisse un tropique ou un cercle polaire pour régler l’inclinaison.</p>
-        @for (pin of pins; track $index) {
-          <label class="pin-row">
-            <span class="pin-tag">Repère {{ $index + 1 }}</span>
-            <input
-              class="cc-input"
-              type="number"
-              step="0.1"
-              min="-90"
-              max="90"
-              [value]="pin.latitudeDeg"
-              (change)="setPin($index, $event)"
-            />
-            <span>°</span>
-          </label>
-        }
-        <label class="pin-row" title="Inclinaison de l’axe : place les tropiques (±inclinaison) et les cercles polaires, et règle l’amplitude des saisons. Terre : 23,4°.">
-          <span class="pin-tag">Inclinaison</span>
-          <input class="cc-input" type="number" step="0.1" min="0" [max]="maxTilt" [value]="facade.displayedTilt()" (change)="setTilt($event)" />
-          <span>°</span>
-        </label>
-        <div class="presets">
-          <button type="button" class="cc-btn shape-galet" title="Remettre l’inclinaison de la Terre (23,4°)" (click)="facade.updateClimateSettings({ axialTiltDeg: 23.44 })">
-            <span class="cc-caption">Terre</span>
-          </button>
-        </div>
-      } @else if (latitudes(); as lat) {
-        <p class="lat-range">{{ lat.top }} <span class="muted">en haut</span> → {{ lat.bottom }} <span class="muted">en bas</span></p>
-        <p class="lat-range">Inclinaison {{ facade.settings()?.axialTiltDeg | number: '1.1-1' }}°</p>
-      }
-    </section>
+    <cc-latitude-panel class="cc-panel" aria-label="Latitudes" />
 
     <section class="edges cc-panel" aria-label="Au-delà des bords">
       <span class="slider-head" title="Le climat tient compte de ce qui entoure la carte, sur environ 800 km : un continent refroidit les hivers et chauffe les étés, un océan les adoucit.">
@@ -172,14 +128,7 @@ function monthOf(phase: number): number {
     :host { display: flex; flex-direction: column; gap: 14px; }
     .views { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
     .views .cc-btn { height: 50px; flex-direction: column; gap: 4px; }
-    .lat { padding: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 11px; font-weight: 600; }
-    .lat-head { display: flex; align-items: center; justify-content: space-between; }
-    .ruler-btn { height: 24px; padding: 0 10px; --cc-shadow: 2px; }
     .hint { margin: 0; font-size: 11px; font-weight: 500; color: var(--cc-muted); }
-    .pin-row { display: flex; align-items: center; gap: 6px; }
-    .pin-tag { flex: 1; }
-    .pin-row .cc-input { width: 64px; }
-    .lat-range { margin: 0; }
     .edges { padding: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 11px; font-weight: 600; }
     .edge-cross {
       display: grid; gap: 4px; align-items: center;
@@ -192,8 +141,6 @@ function monthOf(phase: number): number {
       grid-area: map; height: 30px; display: grid; place-items: center; font-size: 9px;
       border: var(--cc-border) solid var(--cc-ink); background: var(--cc-bg); color: var(--cc-muted);
     }
-    .presets { display: flex; justify-content: flex-end; }
-    .presets .cc-btn { height: 24px; padding: 0 10px; --cc-shadow: 2px; }
     .season { padding: 10px; display: flex; flex-direction: column; gap: 4px; }
     .slider { display: flex; flex-direction: column; gap: 2px; font-size: 11px; font-weight: 600; }
     .slider-head { display: flex; align-items: center; gap: 5px; }
@@ -224,12 +171,6 @@ export class ClimatePanel {
   protected readonly monthName = computed(() => MONTH_NAMES[monthOf(this.facade.yearPhase())]);
   protected readonly statusLabel = computed(() => STATUS_LABELS[this.facade.climateStatus()]);
 
-  protected readonly latitudes = computed(() => {
-    const s = this.facade.settings();
-    return s ? { top: formatLatitude(s.latitudeTopDeg, 1), bottom: formatLatitude(s.latitudeBottomDeg, 1) } : null;
-  });
-
-  protected readonly maxTilt = MAX_TILT_DEG;
   protected readonly edgeSides: { key: keyof BeyondEdges; short: string; label: string }[] = [
     { key: 'north', short: 'N', label: 'Au nord de la carte' },
     { key: 'west', short: 'O', label: 'À l’ouest de la carte' },
@@ -246,20 +187,6 @@ export class ClimatePanel {
     const value = (event.target as HTMLSelectElement).value;
     const option = this.edgeOptions.find((o) => o.value === value);
     if (option) this.facade.setBeyondEdge(side, option.value);
-  }
-
-  protected setTilt(event: Event): void {
-    const value = this.numberValue(event);
-    if (Number.isFinite(value)) this.facade.updateClimateSettings({ axialTiltDeg: Math.min(MAX_TILT_DEG, Math.max(0, value)) });
-  }
-
-  protected toggleRuler(): void {
-    if (this.facade.latitudePins()) this.facade.stopLatitudeEditing();
-    else this.facade.startLatitudeEditing();
-  }
-
-  protected setPin(index: number, event: Event): void {
-    if (index === 0 || index === 1) this.facade.setLatitudePinValue(index, this.numberValue(event));
   }
 
   protected numberValue(event: Event): number {

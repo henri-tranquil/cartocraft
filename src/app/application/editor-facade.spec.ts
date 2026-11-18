@@ -282,6 +282,21 @@ describe('EditorFacade', () => {
     expect(facade.undoLabel()).toBe('Régler l’inclinaison de l’axe');
   });
 
+  it('scrolls the ruler: both latitudes shift, the scale is kept, clamped at the pole', async () => {
+    await facade.createBlankMap(SMALL_MAP, 'A');
+    const { latitudeTopDeg: top, latitudeBottomDeg: bottom } = DEFAULT_MAP_SETTINGS;
+    facade.startLatitudeEditing();
+    facade.shiftLatitudePins(-5);
+    expect(facade.settings()?.latitudeTopDeg).toBe(top); // preview only
+    facade.commitLatitudes();
+    expect(facade.settings()?.latitudeTopDeg).toBeCloseTo(top - 5, 1);
+    expect(facade.settings()?.latitudeBottomDeg).toBeCloseTo(bottom - 5, 1);
+    facade.shiftLatitudePins(500);
+    facade.commitLatitudes();
+    expect(facade.settings()?.latitudeTopDeg).toBeCloseTo(90, 1);
+    expect(facade.settings()?.latitudeBottomDeg).toBeCloseTo(90 - (top - bottom), 1);
+  });
+
   it('refuses pins that would put the south at the top', async () => {
     await facade.createBlankMap(SMALL_MAP, 'A');
     facade.startLatitudeEditing();

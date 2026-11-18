@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { EditorFacade } from '../../application/editor-facade';
 import { DrawingWarning } from '../../domain/drawing/drawing-checks';
 import { drawToolDef } from './draw-tools';
+import { LatitudePanel } from '../latitude-panel/latitude-panel';
 
 const FOREST_NAME = { broadleaf: 'Feuillus', conifer: 'Résineux', tropical: 'Forêt tropicale' } as const;
 
@@ -31,6 +32,7 @@ function formatArea(km2: number): string {
 @Component({
   selector: 'cc-draw-help',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [LatitudePanel],
   template: `
     <section class="card">
       <h2>Outil</h2>
@@ -50,6 +52,7 @@ function formatArea(km2: number): string {
         }
       </ul>
     </section>
+    <cc-latitude-panel class="card" title="La couleur du sol suit la latitude : ocre vers les déserts (20–30°), vert à l’équateur et aux latitudes moyennes, pâle là où l’été est froid (grand nord, haute montagne)." />
     <section class="card">
       <h2>Raccourcis</h2>
       <dl>

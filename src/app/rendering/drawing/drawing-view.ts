@@ -5,6 +5,8 @@ import { CoveragePyramid, FOREST_VALUE, RELIEF_VALUE } from './coverage-pyramid'
 import { DrawnRiver } from '../../domain/drawing/drawn-river';
 import { drawDrawingGlyphs, glyphZoom, RELIEF_GLYPH_REACH_PX } from './drawing-glyphs';
 import { buildRiverShapes, inRiver, RiverShapes, waterCoverage } from './river-raster';
+import { zonalRows, ZonalRows } from '../../domain/drawing/drawing-climate';
+import { MapSettings } from '../../domain/map/map-settings';
 import { DRAWING_TILE_PX, DrawingTileKey, influenceCells, renderDrawingTile, tileCells } from './drawing-tile';
 
 interface CachedTile {
@@ -47,11 +49,25 @@ export class DrawingView {
   private readonly riverShapes = new Map<number, RiverShapes>();
   /** The rivers the cached tiles were drawn with (items are immutable: identity tells a change). */
   private drawnRivers: readonly DrawnRiver[] = [];
+  /** Ground colour by latitude, and the settings it was computed for. */
+  private zonal: ZonalRows;
+  private zonalKey: string;
 
   constructor(private readonly map: WorldMap) {
     this.pyramid = new CoveragePyramid(map.terrain.drawing);
     this.reliefPyramid = new CoveragePyramid(map.terrain.drawing, RELIEF_VALUE);
     this.forestPyramid = new CoveragePyramid(map.terrain.drawing, FOREST_VALUE);
+    this.zonalKey = zonalKeyOf(map.settings);
+    this.zonal = zonalRows(map.settings, map.terrain.drawing.heightCells);
+  }
+
+  /** Latitudes or tilt changed (settings are replaced, not mutated, but compare values to be safe). */
+  private syncZonal(): void {
+    const key = zonalKeyOf(this.map.settings);
+    if (key === this.zonalKey) return;
+    this.zonalKey = key;
+    this.zonal = zonalRows(this.map.settings, this.map.terrain.drawing.heightCells);
+    for (const tile of this.cache.values()) tile.stale = true;
   }
 
   /** The drawing changed in these cell rectangles. */
@@ -82,6 +98,7 @@ export class DrawingView {
       this.riverShapes.clear();
     }
     this.syncRivers();
+    this.syncZonal();
     const level = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, Math.ceil(Math.log2(vp.pixelsPerCell * devicePixelRatio))));
     const visible = this.visibleTiles(vp, level);
     let pending = false;
@@ -138,7 +155,7 @@ export class DrawingView {
     const shapes = this.shapesAt(key.level);
     const water = waterCoverage(shapes, key.tx * DRAWING_TILE_PX - 1, key.ty * DRAWING_TILE_PX - 1, DRAWING_TILE_PX + 2);
     renderDrawingTile(
-      { pyramid: this.pyramid, reliefPyramid: this.reliefPyramid, forestPyramid: this.forestPyramid, widthCells: grid.widthCells, heightCells: grid.heightCells, seed },
+      { pyramid: this.pyramid, reliefPyramid: this.reliefPyramid, forestPyramid: this.forestPyramid, zonal: this.zonal, widthCells: grid.widthCells, heightCells: grid.heightCells, seed },
       key,
       this.pixels.data,
       water,
@@ -271,4 +288,8 @@ export class DrawingView {
 
 function id(key: DrawingTileKey): string {
   return `${key.level}:${key.tx}:${key.ty}`;
+}
+
+function zonalKeyOf(s: MapSettings): string {
+  return `${s.latitudeTopDeg}|${s.latitudeBottomDeg}|${s.axialTiltDeg}|${s.globalTemperatureOffsetC}`;
 }
