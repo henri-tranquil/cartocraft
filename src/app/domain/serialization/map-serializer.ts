@@ -24,6 +24,8 @@ export interface MapHeader {
   readonly id: string;
   readonly name: string;
   readonly source: MapSource;
+  /** Added inside format 5: absent = stale for a drawing map (never converted). */
+  readonly worldStale: boolean;
   readonly settings: MapSettings;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -41,6 +43,7 @@ export function mapToHeader(map: WorldMap): MapHeader {
     id: map.id,
     name: map.name,
     source: map.source,
+    worldStale: map.worldStale,
     settings: map.settings,
     createdAt: map.createdAt,
     updatedAt: map.updatedAt,
@@ -78,6 +81,7 @@ export function mapFromDocument(
     name: header.name,
     formatVersion: CURRENT_FORMAT_VERSION,
     source: header.source,
+    worldStale: header.worldStale,
     settings: header.settings,
     terrain: { baseAltitudeM: baseGrid, drawing },
     features: [...header.features],
@@ -164,11 +168,13 @@ function requireString(header: Readonly<Record<string, unknown>>, key: string): 
 function parseHeader(header: Readonly<Record<string, unknown>>): MapHeader {
   const grids = header['grids'];
   if (!Array.isArray(grids)) throw new MapFormatError('Liste des grilles absente.');
+  const source = parseSource(header['source']);
   return {
     formatVersion: CURRENT_FORMAT_VERSION,
     id: requireString(header, 'id'),
     name: requireString(header, 'name'),
-    source: parseSource(header['source']),
+    source,
+    worldStale: source === 'drawing' && header['worldStale'] !== false,
     settings: parseSettings(header['settings']),
     createdAt: requireString(header, 'createdAt'),
     updatedAt: requireString(header, 'updatedAt'),

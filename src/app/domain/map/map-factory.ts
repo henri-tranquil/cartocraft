@@ -32,6 +32,8 @@ export const MapFactory = {
       name: identity.name,
       formatVersion: CURRENT_FORMAT_VERSION,
       source,
+      // A blank drawing is all sea, like its blank world: nothing to convert yet.
+      worldStale: false,
       settings,
       terrain: {
         baseAltitudeM: createInt16TiledGrid(widthCells, heightCells, BLANK_ALTITUDE_M),

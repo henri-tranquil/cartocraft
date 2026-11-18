@@ -212,6 +212,20 @@ export function riverEnd(river: DrawnRiver, rivers: readonly DrawnRiver[], drawi
  * above that vertex. A stand-in for discharge: the width of a drawn river
  * grows with it, and the conversion will use it for the valley's size.
  */
+/**
+ * Width (KM, fixed on the ground) of a drawn river = kmPerKm · L^exponent,
+ * L = upstream length (km, tributaries included). Real rivers: width ∝
+ * √discharge, and the basin grows a bit faster than the length (Hack's law)
+ * ⇒ width ∝ ~L^0.8: zero at the source, a 1000 km river ≈ 10 km wide at its
+ * mouth (fantasy-map scale, not the real one). Used by the rendering (water
+ * in the tiles, with a minimum width on screen) and by the conversion (bed).
+ */
+export const RIVER_WIDTH = { kmPerKm: 0.04, exponent: 0.8, maxWidthKm: 16 } as const;
+
+export function drawnRiverWidthKm(upstreamKm: number): number {
+  return Math.min(RIVER_WIDTH.maxWidthKm, RIVER_WIDTH.kmPerKm * Math.max(0, upstreamKm) ** RIVER_WIDTH.exponent);
+}
+
 export function riverFlowsKm(rivers: readonly DrawnRiver[]): Map<string, Float64Array> {
   const flows = new Map<string, Float64Array>();
   // Tributaries of each river, with the arc length where they join it.
@@ -265,7 +279,8 @@ export function riverNear(rivers: readonly DrawnRiver[], xKm: number, yKm: numbe
   return best;
 }
 
-function joinOf(river: DrawnRiver, rivers: readonly DrawnRiver[]): { river: DrawnRiver; atKm: number } | null {
+/** The river whose course the mouth of `river` lies on (it is a tributary of it), and where along it (km). */
+export function joinOf(river: DrawnRiver, rivers: readonly DrawnRiver[]): { river: DrawnRiver; atKm: number } | null {
   const p = river.pointsKm;
   const x = p[p.length - 2];
   const y = p[p.length - 1];

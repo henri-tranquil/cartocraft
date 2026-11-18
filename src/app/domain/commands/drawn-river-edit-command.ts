@@ -2,7 +2,7 @@ import { DrawnRiver } from '../drawing/drawn-river';
 import { WorldMap } from '../map/world-map';
 import { Command, MapChange } from './command';
 
-const RIVERS_CHANGE: MapChange = { terrainTiles: [], metadata: true };
+const RIVERS_CHANGE: MapChange = { terrainTiles: [], metadata: true, rivers: true };
 
 /** One river added (before = null), reshaped, or deleted (after = null). */
 export interface RiverEdit {

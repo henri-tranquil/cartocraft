@@ -46,6 +46,11 @@ export interface WorldMap {
   name: string;
   readonly formatVersion: number;
   readonly source: MapSource;
+  /**
+   * Drawing maps: the drawing changed since the world was last converted from
+   * it (or never was). Always false for world maps. Saved with the map.
+   */
+  worldStale: boolean;
   /** Mutable: replaced as a whole by UpdateSettingsCommand. */
   settings: MapSettings;
   readonly terrain: TerrainData;

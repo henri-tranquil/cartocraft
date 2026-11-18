@@ -28,14 +28,14 @@ import { UpdateSettingsCommand } from '../domain/commands/update-settings-comman
 import { MapSource, WorldMap } from '../domain/map/world-map';
 import { MapFormatError } from '../domain/serialization/map-document';
 import { CellPoint } from '../domain/terrain/brushes';
-import { CellRect, getCell, isInside } from '../domain/terrain/tiled-grid';
+import { allTileIndices, CellRect, fromRowMajor, getCell, isInside, toRowMajor } from '../domain/terrain/tiled-grid';
 import { AutoSave } from './auto-save';
 import { ClimateService } from './climate';
 import { SampleMaps } from './sample-maps';
 import { windAt, WindVector } from '../domain/climate/wind';
 import { ClimateResult, precipitationAtMm, snowDepthAtCm, temperatureAtC } from '../domain/climate/climate-model';
 import { MapStore } from './map-store';
-import { MAP_FILE_CODEC, MAP_REPOSITORY } from './ports';
+import { MAP_FILE_CODEC, MAP_REPOSITORY, WORLD_CONVERTER } from './ports';
 import { EditorTool, ToolContext } from './tools/editor-tool';
 import {
   BrushOptions,
@@ -106,6 +106,7 @@ export interface ExportedFile {
 export class EditorFacade {
   private readonly store = inject(MapStore);
   private readonly repository = inject(MAP_REPOSITORY);
+  private readonly converter = inject(WORLD_CONVERTER);
   private readonly fileCodec = inject(MAP_FILE_CODEC);
   private readonly autoSave = inject(AutoSave);
   private readonly climate = inject(ClimateService);
@@ -118,6 +119,9 @@ export class EditorFacade {
   private readonly history = new CommandHistory();
   /** CommandHistory is plain TS; this counter makes its state observable. */
   private readonly historyRevision = signal(0);
+  private readonly convertingState = signal(false);
+  /** Counts drawing edits: a conversion finished after a newer edit leaves the world stale. */
+  private drawingEdits = 0;
   private readonly savedMapsState = signal<readonly MapSummary[]>([]);
   private readonly errorState = signal<string | null>(null);
   private readonly brushState = signal<BrushOptions>({ radiusKm: 25, strength: 0.5 });
@@ -167,6 +171,13 @@ export class EditorFacade {
   private holdTimer: ReturnType<typeof setInterval> | null = null;
 
   readonly hasMap = computed(() => this.store.map() !== null);
+  /** Drawing map whose world was not converted since the last drawing edit. */
+  readonly worldStale = computed(() => {
+    this.store.revision();
+    const map = this.store.map();
+    return map?.source === 'drawing' && map.worldStale;
+  });
+  readonly converting = this.convertingState.asReadonly();
   readonly currentMapId = computed(() => this.store.map()?.id ?? null);
   readonly mapName = this.store.mapName;
   readonly saveStatus = this.autoSave.status.asReadonly();
@@ -639,6 +650,7 @@ export class EditorFacade {
     // Already applied (and redrawn) live: record it without executing it again.
     this.history.record(result.command);
     this.store.touchMap();
+    this.noteDrawingChange(result.change);
     this.autoSave.markChanged(result.change);
     // The climate reads the altitude, not the drawing (until the conversion, step D6).
     if (result.change.terrainTiles.length > 0) this.climate.invalidate();
@@ -812,6 +824,7 @@ export class EditorFacade {
 
   private afterHistoryOp(change: MapChange | null): void {
     if (!change) return;
+    this.noteDrawingChange(change);
     this.store.applyChange(change);
     this.autoSave.markChanged(change);
     if (change.terrainTiles.length > 0 || change.hydrology) this.climate.invalidate();
@@ -821,6 +834,52 @@ export class EditorFacade {
     }
     this.historyRevision.update((r) => r + 1);
     if (change.metadata) void this.refreshList();
+  }
+
+  // --- Conversion drawing → world (D6) ---
+
+  /**
+   * Rebuilds the world (altitudes) of a drawing map from its drawing, in a
+   * worker. Not an undoable command: the world is derived data, like the
+   * climate; undoing a drawing edit then converting again gives it back.
+   */
+  async convertToWorld(): Promise<void> {
+    const map = this.store.map();
+    if (!map || map.source !== 'drawing' || this.convertingState()) return;
+    const grid = map.terrain.baseAltitudeM;
+    const editsAtStart = this.drawingEdits;
+    this.convertingState.set(true);
+    try {
+      const altitudeM = await this.converter.convert({
+        drawing: toRowMajor(map.terrain.drawing),
+        widthCells: grid.widthCells,
+        heightCells: grid.heightCells,
+        cellKm: map.settings.baseCellKm,
+        seaLevelM: map.settings.seaLevelM,
+        seed: map.settings.seed,
+        rivers: [...map.rivers],
+      });
+      if (this.store.map() !== map) return; // another map was opened meanwhile
+      const converted = fromRowMajor(altitudeM, grid.widthCells, grid.heightCells, grid.tileSize);
+      grid.tiles.forEach((tile, i) => tile.set(converted.tiles[i]));
+      map.worldStale = this.drawingEdits !== editsAtStart;
+      const change: MapChange = { terrainTiles: allTileIndices(grid), metadata: false };
+      this.store.applyChange(change);
+      this.autoSave.markChanged(change);
+      this.climate.invalidate(0);
+    } catch (error) {
+      this.errorState.set(`La conversion a échoué : ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      this.convertingState.set(false);
+    }
+  }
+
+  /** A drawing edit (tiles or rivers) on a drawing map: its world is out of date. */
+  private noteDrawingChange(change: MapChange): void {
+    const map = this.store.map();
+    if (map?.source !== 'drawing' || ((change.drawingTiles?.length ?? 0) === 0 && !change.rivers)) return;
+    this.drawingEdits++;
+    map.worldStale = true;
   }
 
   // --- Helpers ---

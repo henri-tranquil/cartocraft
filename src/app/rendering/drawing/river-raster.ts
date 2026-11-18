@@ -2,7 +2,8 @@ import { DrawnRiver, mouthLengthKm, mouthShape, riverEnd, riverFlowsKm } from '.
 import { fbm } from '../../domain/terrain/noise';
 import { Int16TiledGrid } from '../../domain/terrain/tiled-grid';
 import { chaikin } from '../river-layer';
-import { drawnRiverWidthKm, DRAWN_RIVER_STYLE } from './drawn-river-layer';
+import { drawnRiverWidthKm } from '../../domain/drawing/drawn-river';
+import { DRAWN_RIVER_STYLE } from './drawn-river-layer';
 
 /**
  * Drawn rivers as WATER in the drawing tiles, not as lines over them.

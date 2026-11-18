@@ -7,7 +7,8 @@ import { WorldMap } from '../domain/map/world-map';
 import { MapFormatError } from '../domain/serialization/map-document';
 import { EditorFacade } from './editor-facade';
 import { MapStore } from './map-store';
-import { CLIMATE_ENGINE, MAP_FILE_CODEC, MAP_REPOSITORY } from './ports';
+import { CLIMATE_ENGINE, MAP_FILE_CODEC, MAP_REPOSITORY, WORLD_CONVERTER } from './ports';
+import { convertDrawingToWorld, WorldConverter } from '../domain/drawing/drawing-to-world';
 import { computeClimateRun } from '../domain/climate/climate-run';
 import { ClimateEngine } from '../domain/climate/climate-engine';
 
@@ -50,6 +51,8 @@ const failingCodec: MapFileCodec = {
   fileNameFor: () => 'x.cartocraft',
 };
 
+const inlineConverter: WorldConverter = { convert: async (input) => convertDrawingToWorld(input) };
+
 describe('EditorFacade', () => {
   let facade: EditorFacade;
   let store: MapStore;
@@ -62,6 +65,7 @@ describe('EditorFacade', () => {
         { provide: MAP_REPOSITORY, useValue: repository },
         { provide: MAP_FILE_CODEC, useValue: failingCodec },
         { provide: CLIMATE_ENGINE, useValue: inlineClimateEngine },
+        { provide: WORLD_CONVERTER, useValue: inlineConverter },
       ],
     });
     facade = TestBed.inject(EditorFacade);
@@ -188,6 +192,24 @@ describe('EditorFacade', () => {
     facade.undo();
     expect(isLandCode(getCell(map.terrain.drawing, 35, 30))).toBe(false);
     expect(store.takeDirtyDrawingRects().length).toBeGreaterThan(0);
+  }, CLIMATE_TEST_TIMEOUT_MS);
+
+  it('marks the world stale after a drawing edit, and converting brings land up and the climate to recompute', async () => {
+    await facade.createBlankMap(CLIMATE_MAP, 'A');
+    await vi.waitFor(() => expect(facade.climateStatus()).toBe('ready'));
+    expect(facade.worldStale()).toBe(false);
+    facade.selectDrawTool('land');
+    facade.setDrawingBrush({ radiusKm: 8, roughness: 0 });
+    facade.pointerDown({ x: 30, y: 30 });
+    facade.pointerUp();
+    expect(facade.worldStale()).toBe(true);
+    await facade.convertToWorld();
+    expect(facade.worldStale()).toBe(false);
+    expect(facade.altitudeAt({ x: 30, y: 30 })).toBeGreaterThan(0);
+    expect(facade.altitudeAt({ x: 5, y: 5 })).toBeLessThan(0);
+    expect(facade.climateStatus()).not.toBe('ready');
+    facade.undo(); // the drawing edit: stale again (the world is not part of the history)
+    expect(facade.worldStale()).toBe(true);
   }, CLIMATE_TEST_TIMEOUT_MS);
 
   it('keeps applying while the pointer is held still (airbrush)', async () => {

@@ -101,6 +101,18 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
             <b>2</b> Monde
           </button>
         </div>
+        @if (conversionEnabled && facade.mapSource() === 'drawing') {
+          <button
+            type="button"
+            class="convert"
+            [class.convert--stale]="facade.worldStale()"
+            [disabled]="facade.converting() || !facade.worldStale()"
+            [title]="facade.worldStale() ? 'Recalculer le monde (altitudes, vallées des fleuves) à partir du dessin, puis le climat et les fleuves' : 'Le monde est à jour avec le dessin'"
+            (click)="convert()"
+          >
+            {{ facade.converting() ? 'Conversion…' : facade.worldStale() ? 'Convertir en monde' : 'Monde à jour ✓' }}
+          </button>
+        }
       } @else {
         <span class="spacer"></span>
       }
@@ -154,8 +166,8 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
                 <p class="hint">Vue « carte ancienne », en lecture seule : le clic déplace la carte. Les fleuves et les noms y figurent.</p>
               }
             }
-            @if (facade.mapSource() === 'drawing') {
-              <p class="hint world-note">La conversion dessin → monde arrive bientôt : en attendant, le monde garde son ancien relief.</p>
+            @if (conversionEnabled && facade.worldStale()) {
+              <p class="hint world-note">Le dessin a changé depuis la dernière conversion : clique « Convertir en monde » en haut pour mettre le monde à jour.</p>
             }
           </aside>
         }
@@ -229,6 +241,9 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
     .steps button b { font-size: 11px; opacity: 0.7; }
     .steps button[aria-pressed='true'] { background: var(--cc-accent); color: var(--cc-ink); }
     .steps cc-icon { opacity: 0.6; }
+    .convert { height: 30px; padding: 0 12px; border-radius: 999px; border: 2px solid #3a3226; background: transparent; color: var(--cc-side-fg); font: 600 12.5px var(--cc-font-ui); cursor: pointer; }
+    .convert--stale { background: var(--cc-accent); border-color: var(--cc-ink); color: var(--cc-ink); }
+    .convert:disabled { cursor: default; opacity: 0.75; }
 
     .body { flex: 1; min-height: 0; display: flex; gap: 12px; padding: 12px; }
     .palette, .help { flex: none; overflow-y: auto; }
@@ -269,6 +284,8 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
 export class EditorShell implements OnInit {
   protected readonly facade = inject(EditorFacade);
   protected readonly sections = SECTIONS;
+  /** Conversion drawing → world (D6): kept in the code, switched off until the drawing step is done (Henri, 18/11). */
+  protected readonly conversionEnabled = false;
   protected readonly activeSection = signal<SectionId>('relief');
   private readonly active = computed(() => SECTIONS.find((s) => s.id === this.activeSection()) ?? SECTIONS[0]);
   protected readonly activeLabel = computed(() => this.active().label);
@@ -335,7 +352,14 @@ export class EditorShell implements OnInit {
     void this.facade.createBlankMap(request.settings, request.name, request.source);
   }
 
-  protected createFromSketch(request: SketchMapRequest): void {
+  /** Converts, then shows the result: the World step. */
+  protected convert(): void {
+    void this.facade.convertToWorld().then(() => {
+      if (!this.facade.error()) this.facade.setWorkspace('world');
+    });
+  }
+
+    protected createFromSketch(request: SketchMapRequest): void {
     void this.facade.createMapFromSketch(request);
   }
 

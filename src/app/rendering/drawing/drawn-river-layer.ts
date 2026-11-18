@@ -9,17 +9,6 @@ import { cellToScreen, Viewport } from '../viewport';
  * like a real river widening downstream.
  */
 export const DRAWN_RIVER_STYLE = {
-  /**
-   * Width (KM, fixed on the ground: it does not change with the zoom) =
-   * kmPerKm · L^exponent, L = upstream length (km, tributaries included).
-   * Real rivers: width ∝ √discharge, and the basin grows a bit faster than
-   * the length (Hack's law) ⇒ width ∝ ~L^0.8: zero at the source, a 1000 km
-   * river ≈ 10 km wide at its mouth (fantasy-map scale, not the real one).
-   * Thin reaches still get a minimum width on screen (river-raster.ts).
-   */
-  kmPerKm: 0.04,
-  exponent: 0.8,
-  maxWidthKm: 16,
   /** Estuary: width multiplied up to 1 + this at the mouth. */
   estuaryFlare: 1.5,
   /** Delta: width kept by the main channel below the fork, and by each branch. */
@@ -27,12 +16,6 @@ export const DRAWN_RIVER_STYLE = {
   deltaBranchShare: 0.5,
   previewColour: 'rgb(58 112 128 / 0.85)',
 } as const;
-
-/** Width (km) of a drawn river where `upstreamKm` of river flows through. */
-export function drawnRiverWidthKm(upstreamKm: number): number {
-  const s = DRAWN_RIVER_STYLE;
-  return Math.min(s.maxWidthKm, s.kmPerKm * Math.max(0, upstreamKm) ** s.exponent);
-}
 
 /** The stroke being traced, dashed, until the pointer is released (the river itself is water in the tiles). */
 export function drawRiverPreview(ctx: CanvasRenderingContext2D, vp: Viewport, preview: readonly number[] | null, cellKm: number): void {
