@@ -51,7 +51,7 @@ abstract class TerrainBrushTool implements EditorTool {
     const command = this.recorder?.finish(this.label) ?? null;
     this.recorder = null;
     this.last = null;
-    return command ? { command, change: { terrainTiles: command.tileIndices, metadata: false } } : null;
+    return command ? { command, change: command.change } : null;
   }
 
   protected abstract applyDab(grid: Int16TiledGrid, dab: BrushDab, strength: number): CellRect | null;

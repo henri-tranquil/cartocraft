@@ -5,7 +5,10 @@ import { WorldMap } from '../map/world-map';
  * (the renderer will redraw only `terrainTiles`).
  */
 export interface MapChange {
+  /** Altitude tiles touched. */
   readonly terrainTiles: readonly number[];
+  /** Drawing tiles touched (same tiling as the altitude). */
+  readonly drawingTiles?: readonly number[];
   readonly metadata: boolean;
   /** Map settings (latitudes, tilt…) changed: derived data like the climate must be recomputed. */
   readonly settings?: boolean;

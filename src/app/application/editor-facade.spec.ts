@@ -1,6 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import { MapFileCodec, MapRepository, MapSummary } from '../domain/map/map-repository';
 import { DEFAULT_MAP_SETTINGS } from '../domain/map/map-settings';
+import { isLandCode } from '../domain/drawing/drawing-cell';
+import { getCell } from '../domain/terrain/tiled-grid';
 import { WorldMap } from '../domain/map/world-map';
 import { MapFormatError } from '../domain/serialization/map-document';
 import { EditorFacade } from './editor-facade';
@@ -64,6 +66,8 @@ describe('EditorFacade', () => {
     });
     facade = TestBed.inject(EditorFacade);
     store = TestBed.inject(MapStore);
+    // Most tests here exercise the World step (relief brushes, climate); drawing tests switch back.
+    facade.setWorkspace('world');
   });
 
   it('creates a blank map, saves it immediately and marks all tiles dirty for rendering', async () => {
@@ -163,6 +167,28 @@ describe('EditorFacade', () => {
     facade.undo();
     expect(facade.altitudeAt({ x: 120, y: 100 })).toBe(-200);
   });
+
+  it('draws land in the Draw step without touching the altitude or the climate', async () => {
+    await facade.createBlankMap(CLIMATE_MAP, 'A');
+    await vi.waitFor(() => expect(facade.climateStatus()).toBe('ready'));
+    facade.setWorkspace('draw');
+    facade.selectDrawTool('land');
+    facade.setDrawingBrush({ radiusKm: 5, roughness: 0 });
+    expect(facade.drawingWarnings()).toEqual([{ kind: 'noLand' }]);
+    facade.pointerDown({ x: 30, y: 30 });
+    facade.pointerMove({ x: 40, y: 30 });
+    expect(store.takeDirtyDrawingRects().length).toBeGreaterThan(1);
+    facade.pointerUp();
+    const map = store.map()!;
+    expect(isLandCode(getCell(map.terrain.drawing, 35, 30))).toBe(true);
+    expect(facade.altitudeAt({ x: 35, y: 30 })).toBe(-200);
+    expect(facade.climateStatus()).toBe('ready');
+    expect(facade.drawingWarnings()).toEqual([]);
+    expect(facade.undoLabel()).toBe('Peindre la terre');
+    facade.undo();
+    expect(isLandCode(getCell(map.terrain.drawing, 35, 30))).toBe(false);
+    expect(store.takeDirtyDrawingRects().length).toBeGreaterThan(0);
+  }, CLIMATE_TEST_TIMEOUT_MS);
 
   it('keeps applying while the pointer is held still (airbrush)', async () => {
     vi.useFakeTimers();

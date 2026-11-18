@@ -1,4 +1,4 @@
-import { WorldMap } from './world-map';
+import { TerrainLayer, WorldMap } from './world-map';
 
 export interface MapSummary {
   readonly id: string;
@@ -8,12 +8,15 @@ export interface MapSummary {
   readonly updatedAt: string;
 }
 
+/** Tiles modified since the last save, per terrain grid. */
+export type ChangedTiles = Readonly<Record<TerrainLayer, readonly number[]>>;
+
 /**
  * Port (interface) owned by the domain; adapters live in infrastructure.
  * `changedTiles` lets an adapter rewrite only modified tiles ('all' = full save).
  */
 export interface MapRepository {
-  save(map: WorldMap, changedTiles: readonly number[] | 'all'): Promise<void>;
+  save(map: WorldMap, changedTiles: ChangedTiles | 'all'): Promise<void>;
   load(id: string): Promise<WorldMap>;
   list(): Promise<MapSummary[]>;
   delete(id: string): Promise<void>;

@@ -2,11 +2,25 @@ import { MapFeature } from '../features/map-feature';
 import { Int16TiledGrid } from '../terrain/tiled-grid';
 import { MapSettings } from './map-settings';
 
-export const CURRENT_FORMAT_VERSION = 3;
+export const CURRENT_FORMAT_VERSION = 4;
 
 export interface TerrainData {
   /** Base altitude grid, in metres. High-res touch-up tiles come in step 8. */
   readonly baseAltitudeM: Int16TiledGrid;
+  /**
+   * What the user DREW (land/sea, relief class, forest), one code per cell,
+   * same tiling as the altitude (see domain/drawing/drawing-cell.ts).
+   * The master data of the "Dessiner d'abord" workflow: the altitude will be
+   * regenerated from it by the conversion (step D6).
+   */
+  readonly drawing: Int16TiledGrid;
+}
+
+/** Which tiled grid of the terrain a tile index refers to. */
+export type TerrainLayer = 'altitude' | 'drawing';
+
+export function terrainGrid(map: WorldMap, layer: TerrainLayer): Int16TiledGrid {
+  return layer === 'altitude' ? map.terrain.baseAltitudeM : map.terrain.drawing;
 }
 
 /**

@@ -120,8 +120,9 @@ export function mountainSite(input: MountainInput, cx: number, cy: number, radiu
  * Each flank is a jittered polyline (a hand never draws a straight slope);
  * the jitter comes from the glyph's variant, so it is the same every frame.
  * `x, y` = base centre on screen, `w, h` = size in px, `v` ∈ [0, 1) = variant.
+ * `snow` adds a white cap (high mountains of the drawing).
  */
-export function drawMountainGlyph(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, v: number): void {
+export function drawMountainGlyph(ctx: Ctx2D, x: number, y: number, w: number, h: number, v: number, snow = false): void {
   let state = Math.floor(v * 0x7fffffff) || 1;
   const rand = (): number => {
     state = (Math.imul(state, 48271) % 0x7fffffff) >>> 0; // Park–Miller: tiny deterministic PRNG
@@ -174,6 +175,22 @@ export function drawMountainGlyph(ctx: CanvasRenderingContext2D, x: number, y: n
   ctx.fillStyle = fade(VINTAGE.mountainShade);
   ctx.fill();
 
+  if (snow) {
+    // Jagged cap over the top third, following the flanks' first points.
+    const l = left[left.length - 1];
+    const r = right[0];
+    ctx.beginPath();
+    ctx.moveTo(peakX, peakY);
+    ctx.lineTo(l[0], l[1]);
+    ctx.lineTo(peakX + (l[0] - peakX) * 0.35, l[1] - h * 0.04);
+    ctx.lineTo(peakX + w * 0.02, peakY + h * 0.3);
+    ctx.lineTo(peakX + (r[0] - peakX) * 0.5, r[1] - h * 0.02);
+    ctx.lineTo(r[0], r[1]);
+    ctx.closePath();
+    ctx.fillStyle = VINTAGE.snowCap;
+    ctx.fill();
+  }
+
   ctx.strokeStyle = VINTAGE.ink;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
@@ -202,6 +219,9 @@ export function drawMountainGlyph(ctx: CanvasRenderingContext2D, x: number, y: n
   ctx.strokeStyle = fade(VINTAGE.ink);
   ctx.stroke();
 }
+
+/** Glyphs draw on screen canvases and on offscreen tiles alike. */
+export type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;

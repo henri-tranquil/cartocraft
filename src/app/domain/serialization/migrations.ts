@@ -1,3 +1,4 @@
+import { drawingFromAltitudes } from '../drawing/drawing-from-altitudes';
 import { CURRENT_FORMAT_VERSION } from '../map/world-map';
 import { isRecord, MapFormatError, RawMapDocument, readFormatVersion } from './map-document';
 
@@ -37,8 +38,47 @@ const V2_TO_V3: Migration = {
   },
 };
 
+/**
+ * v3 → v4: the DRAWING layer. Older maps only have altitudes, so a first
+ * drawing is guessed from them (land = not sea, relief class from the
+ * altitude band, no forest). Block names are written literally: a migration
+ * must not change if the serializer's constants are renamed later.
+ */
+const V3_TO_V4: Migration = {
+  fromVersion: 3,
+  migrate(document) {
+    const grids = document.header['grids'];
+    const settings = document.header['settings'];
+    if (!Array.isArray(grids) || !isRecord(settings)) throw new MapFormatError('En-tête de carte incomplet.');
+    const base: unknown = grids.find((g) => isRecord(g) && g['block'] === 'baseAltitudeM');
+    const bytes = document.blocks.get('baseAltitudeM');
+    if (!isRecord(base) || !bytes) throw new MapFormatError('Grille d’altitude absente.');
+    const w = base['widthCells'];
+    const h = base['heightCells'];
+    const seaLevelM = settings['seaLevelM'];
+    if (typeof w !== 'number' || typeof h !== 'number' || typeof seaLevelM !== 'number' || bytes.byteLength !== w * h * 2) {
+      throw new MapFormatError('Grille d’altitude tronquée ou de taille incohérente.');
+    }
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const altitudeM = new Int16Array(w * h);
+    for (let i = 0; i < altitudeM.length; i++) altitudeM[i] = view.getInt16(i * 2, true);
+    const drawing = drawingFromAltitudes(altitudeM, w, h, seaLevelM);
+    const out = new Uint8Array(drawing.length * 2);
+    const outView = new DataView(out.buffer);
+    for (let i = 0; i < drawing.length; i++) outView.setInt16(i * 2, drawing[i], true);
+    return {
+      header: {
+        ...document.header,
+        formatVersion: 4,
+        grids: [...grids, { block: 'drawing', type: 'int16', widthCells: w, heightCells: h }],
+      },
+      blocks: new Map([...document.blocks, ['drawing', out]]),
+    };
+  },
+};
+
 /** Ordered list. */
-export const MIGRATIONS: readonly Migration[] = [V1_TO_V2, V2_TO_V3];
+export const MIGRATIONS: readonly Migration[] = [V1_TO_V2, V2_TO_V3, V3_TO_V4];
 
 export function migrateToCurrent(
   document: RawMapDocument,

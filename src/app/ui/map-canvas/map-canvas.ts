@@ -17,6 +17,7 @@ import { WorldMap } from '../../domain/map/world-map';
 import { ClimateResult } from '../../domain/climate/climate-model';
 import { CellPoint } from '../../domain/terrain/brushes';
 import { TerrainRaster } from '../../rendering/terrain-raster';
+import { DrawingView } from '../../rendering/drawing/drawing-view';
 import { VintageBuilder, VintageRaster } from '../../rendering/vintage-raster';
 import { EDIT_LAKE_STYLE, LakeLayer, VINTAGE_LAKE_STYLE } from '../../rendering/lake-layer';
 import { cellToScreen, fitViewport, panBy, resize, screenToCell, Viewport, zoomAt, zoomLimits } from '../../rendering/viewport';
@@ -66,7 +67,9 @@ const RIVER_PICK_PX = 10;
     <footer class="status">
       @if (hoverInfo(); as info) {
         <span class="chip" title="Position">{{ info.xKm | number: '1.0-0' }} · {{ info.yKm | number: '1.0-0' }} km</span>
-        <span class="chip chip--accent" title="Altitude"><cc-icon name="altitude" [size]="9" /> {{ info.altitudeM | number: '1.0-0' }} m</span>
+        @if (info.altitudeM !== null) {
+          <span class="chip chip--accent" title="Altitude"><cc-icon name="altitude" [size]="9" /> {{ info.altitudeM | number: '1.0-0' }} m</span>
+        }
         @if (info.temperatureC !== null) {
           <span class="chip" title="Température à la saison affichée">{{ info.temperatureC | number: '1.0-0' }} °C</span>
         }
@@ -108,6 +111,8 @@ export class MapCanvas {
   protected readonly hover = signal<CellPoint | null>(null);
   private raster: TerrainRaster | null = null;
   private rasterMap: WorldMap | null = null;
+  /** Draw step: the drawing in the illustrated look, by cached tiles. */
+  private drawingView: { view: DrawingView; map: WorldMap } | null = null;
   /** Rendered view, rebuilt when the map or its revision changes. */
   private readonly editLakes = new LakeLayer(EDIT_LAKE_STYLE);
   private readonly vintageLakes = new LakeLayer(VINTAGE_LAKE_STYLE);
@@ -132,7 +137,7 @@ export class MapCanvas {
   protected readonly cursor = computed(() => {
     if (this.hoveredPin() !== null) return 'ns-resize';
     if (this.facade.namesEditing()) return this.hoveringLabel() ? 'move' : geometryOf(this.facade.newPlaceTemplate()) === 'point' ? 'copy' : 'crosshair';
-    return this.facade.effectiveTool() === 'pan' ? 'grab' : 'crosshair';
+    return this.facade.pointerTool() === 'pan' ? 'grab' : 'crosshair';
   });
 
   protected readonly hoverInfo = computed(() => {
@@ -143,6 +148,10 @@ export class MapCanvas {
     const altitudeM = this.facade.altitudeAt(point);
     if (altitudeM === null) return null;
     const km = map.settings.baseCellKm;
+    if (this.facade.workspace() === 'draw') {
+      // The altitude is not generated from the drawing yet (step D6): showing it here would mislead.
+      return { xKm: point.x * km, yKm: point.y * km, altitudeM: null, temperatureC: null, precipitationMm: null, snowCm: null, dischargeM3s: null, windLabel: null };
+    }
     this.facade.yearPhase();
     this.facade.hasClimate();
     const wind = this.facade.windAt(point);
@@ -168,6 +177,8 @@ export class MapCanvas {
       this.hover();
       this.facade.brush();
       this.facade.effectiveTool();
+      this.facade.workspace();
+      this.facade.cursorRadiusKm();
       this.facade.climateOverlay();
       this.facade.windOverlay();
       this.facade.latitudePins();
@@ -226,7 +237,7 @@ export class MapCanvas {
       return;
     }
     // Middle or right button always pans; left button uses the active tool.
-    if (event.button !== 0 || this.facade.effectiveTool() === 'pan') {
+    if (event.button !== 0 || this.facade.pointerTool() === 'pan') {
       this.panning = { pointerId: event.pointerId, lastX: event.offsetX, lastY: event.offsetY };
       return;
     }
@@ -380,6 +391,11 @@ export class MapCanvas {
     const vp = this.viewport();
     if (!this.raster || !vp) return;
 
+    if (this.facade.workspace() === 'draw') {
+      this.drawDrawing(ctx, vp, map, dpr);
+      return;
+    }
+
     if (this.facade.rendered()) {
       this.drawRendered(ctx, vp, map);
       const hydrology = this.facade.renderHydrology();
@@ -419,6 +435,16 @@ export class MapCanvas {
         active: this.pinDrag?.index ?? this.hoveredPin(),
       });
     }
+  }
+
+  private drawDrawing(ctx: CanvasRenderingContext2D, vp: Viewport, map: WorldMap, dpr: number): void {
+    const dirty = this.facade.takeDirtyDrawingRects();
+    if (this.drawingView?.map !== map) this.drawingView = { view: new DrawingView(map), map };
+    else this.drawingView.view.invalidate(dirty);
+    const pending = this.drawingView.view.draw(ctx, vp, dpr);
+    this.drawBrushCursor(ctx, vp, map);
+    this.drawNames(ctx, vp, map);
+    if (pending) this.requestDraw();
   }
 
   private drawRendered(ctx: CanvasRenderingContext2D, vp: Viewport, map: WorldMap): void {
@@ -517,9 +543,10 @@ export class MapCanvas {
 
   private drawBrushCursor(ctx: CanvasRenderingContext2D, vp: Viewport, map: WorldMap): void {
     const point = this.hover();
-    if (!point || this.facade.effectiveTool() === 'pan') return;
+    const radiusKm = this.facade.cursorRadiusKm();
+    if (!point || radiusKm === null) return;
     const center = cellToScreen(vp, point.x, point.y);
-    const radiusPx = (this.facade.brush().radiusKm / map.settings.baseCellKm) * vp.pixelsPerCell;
+    const radiusPx = (radiusKm / map.settings.baseCellKm) * vp.pixelsPerCell;
     ctx.lineWidth = 1.5;
     ctx.strokeStyle = 'rgb(40 30 20 / 0.8)';
     ctx.beginPath();

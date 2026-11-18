@@ -36,7 +36,18 @@ export type IconName =
   | 'zone'
   | 'bay'
   | 'range'
-  | 'river';
+  | 'river'
+  | 'sea'
+  | 'plain'
+  | 'hills'
+  | 'midMountain'
+  | 'highMountain'
+  | 'broadleaf'
+  | 'conifer'
+  | 'tropical'
+  | 'clearing'
+  | 'chevronDown'
+  | 'arrowRight';
 
 /**
  * Inline stroke pictograms (they follow `currentColor`). Decorative by default:
@@ -71,6 +82,39 @@ export type IconName =
         }
         @case ('render') {
           <path d="M4 4h16v16H4z" /><path d="M7 16l3.5-5 2.5 3.5 1.5-2L17 16" /><circle cx="15.5" cy="8" r="1.2" />
+        }
+        @case ('sea') {
+          <path d="M2 9c2.5-2 4.5 2 7 0s4.5-2 7 0 4 1 6 0M2 15c2.5-2 4.5 2 7 0s4.5-2 7 0 4 1 6 0" />
+        }
+        @case ('plain') {
+          <path d="M2 18h20M6 18l1-3M11 18l1-3M16 18l1-3" />
+        }
+        @case ('hills') {
+          <path d="M2 19c2-6 5-8 8-8s5 3 6 5c1-2 3-3 6 3z" />
+        }
+        @case ('midMountain') {
+          <path d="M2 20l8-12 4 5 2-2 6 9z" />
+        }
+        @case ('highMountain') {
+          <path d="M2 21l8-17 4 7 3-3 5 13z" /><path d="M7.5 9.5l2.5-5.5 2.5 5.5-1.3 1-1.2-1.2-1.2 1.2z" fill="currentColor" />
+        }
+        @case ('broadleaf') {
+          <circle cx="12" cy="9" r="6" /><path d="M12 15v7" />
+        }
+        @case ('conifer') {
+          <path d="M12 2l6 15H6z" /><path d="M12 17v5" />
+        }
+        @case ('tropical') {
+          <path d="M12 22c0-5 .5-9-1-12" /><path d="M11 10c-3-3-7-2-8 0 3-1 5 0 8 0zM11 10c2-4 6-5 9-3-3 0-6 1-9 3zM11 10c-1-4-4-6-7-6 3 1 5 3 7 6z" />
+        }
+        @case ('clearing') {
+          <circle cx="12" cy="9" r="6" /><path d="M12 15v7M3 21L21 3" />
+        }
+        @case ('chevronDown') {
+          <path d="M6 9l6 6 6-6" />
+        }
+        @case ('arrowRight') {
+          <path d="M4 12h15M13 6l6 6-6 6" />
         }
         @case ('relief') {
           <path d="M2 20l7-11 4 6 2.5-3.5L22 20z" />

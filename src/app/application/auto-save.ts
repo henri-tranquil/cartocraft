@@ -1,4 +1,6 @@
 import { DOCUMENT, inject, Injectable, signal } from '@angular/core';
+import { MapChange } from '../domain/commands/command';
+import { ChangedTiles } from '../domain/map/map-repository';
 import { WorldMap } from '../domain/map/world-map';
 import { MapStore } from './map-store';
 import { MAP_REPOSITORY } from './ports';
@@ -19,7 +21,7 @@ export class AutoSave {
   private readonly repository = inject(MAP_REPOSITORY);
   private readonly store = inject(MapStore);
 
-  private readonly pendingTiles = new Set<number>();
+  private readonly pendingTiles = { altitude: new Set<number>(), drawing: new Set<number>() };
   private pendingFull = false;
   private pendingMetadata = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -35,9 +37,10 @@ export class AutoSave {
     });
   }
 
-  markChanged(terrainTiles: readonly number[], metadata: boolean): void {
-    for (const t of terrainTiles) this.pendingTiles.add(t);
-    this.pendingMetadata ||= metadata;
+  markChanged(change: MapChange): void {
+    for (const t of change.terrainTiles) this.pendingTiles.altitude.add(t);
+    for (const t of change.drawingTiles ?? []) this.pendingTiles.drawing.add(t);
+    this.pendingMetadata ||= change.metadata;
     this.schedule();
   }
 
@@ -50,18 +53,20 @@ export class AutoSave {
   flush(): Promise<void> {
     this.clearTimer();
     const map = this.store.map();
-    const hasPending = this.pendingFull || this.pendingMetadata || this.pendingTiles.size > 0;
+    const { altitude, drawing } = this.pendingTiles;
+    const hasPending = this.pendingFull || this.pendingMetadata || altitude.size > 0 || drawing.size > 0;
     if (!map || !hasPending) return this.chain;
 
-    const tiles = this.pendingFull ? 'all' : [...this.pendingTiles];
-    this.pendingTiles.clear();
+    const tiles: ChangedTiles | 'all' = this.pendingFull ? 'all' : { altitude: [...altitude], drawing: [...drawing] };
+    altitude.clear();
+    drawing.clear();
     this.pendingFull = false;
     this.pendingMetadata = false;
     this.chain = this.chain.then(() => this.write(map, tiles));
     return this.chain;
   }
 
-  private async write(map: WorldMap, tiles: readonly number[] | 'all'): Promise<void> {
+  private async write(map: WorldMap, tiles: ChangedTiles | 'all'): Promise<void> {
     this.status.set('saving');
     try {
       await this.repository.save(map, tiles);

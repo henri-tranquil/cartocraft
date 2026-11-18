@@ -20,7 +20,8 @@ import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
 import { MapFactory } from '../src/app/domain/map/map-factory';
 import { MapSettings } from '../src/app/domain/map/map-settings';
-import { clampInt16, setCell } from '../src/app/domain/terrain/tiled-grid';
+import { clampInt16, setCell, toRowMajor } from '../src/app/domain/terrain/tiled-grid';
+import { drawingFromAltitudes } from '../src/app/domain/drawing/drawing-from-altitudes';
 import { exportMapToBlob } from '../src/app/infrastructure/persistence/map-file';
 import { SAMPLE_JAPAN } from '../src/app/application/samples';
 import { createFeature, MapFeature } from '../src/app/domain/features/map-feature';
@@ -178,6 +179,9 @@ async function main(): Promise<void> {
       setCell(grid, x, y, clampInt16(Math.round(await elevationAt(lat, lon))));
     }
   }
+  // First drawing guessed from the altitudes (same rule as the v3 → v4 migration); D7 will refine it.
+  const drawing = drawingFromAltitudes(toRowMajor(grid), w, h, settings.seaLevelM);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) setCell(map.terrain.drawing, x, y, drawing[y * w + x]);
   // River names snap onto the rivers the app will compute (same climate + hydrology run).
   const { hydrology } = computeClimateRun(buildClimateInput(map));
   map.features.push(...japanFeatures(hydrology.rivers));

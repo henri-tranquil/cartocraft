@@ -1,4 +1,4 @@
-import { WorldMap } from '../map/world-map';
+import { TerrainLayer, terrainGrid, WorldMap } from '../map/world-map';
 import { Int16TiledGrid } from '../terrain/tiled-grid';
 import { Command, MapChange } from './command';
 
@@ -9,7 +9,7 @@ export interface TileDiff {
 }
 
 /**
- * One brush stroke = one command holding before/after copies of the touched
+ * One brush stroke (on the altitude or on the drawing) = one command holding before/after copies of the touched
  * tiles only (not a full-map snapshot). A 256² Int16 tile costs 128 KB per
  * copy, so a stroke over 4 tiles weighs ~1 MB in history.
  */
@@ -20,22 +20,30 @@ export class TerrainEditCommand implements Command {
   constructor(
     readonly label: string,
     private readonly diffs: readonly TileDiff[],
+    readonly layer: TerrainLayer = 'altitude',
   ) {
     this.sizeBytes = diffs.reduce((sum, d) => sum + d.before.byteLength + d.after.byteLength, 0);
     this.tileIndices = diffs.map((d) => d.tileIndex);
   }
 
   execute(map: WorldMap): MapChange {
-    return this.apply(map.terrain.baseAltitudeM, 'after');
+    return this.apply(terrainGrid(map, this.layer), 'after');
   }
 
   undo(map: WorldMap): MapChange {
-    return this.apply(map.terrain.baseAltitudeM, 'before');
+    return this.apply(terrainGrid(map, this.layer), 'before');
+  }
+
+  /** What this command touches, for the store and the auto-save. */
+  get change(): MapChange {
+    return this.layer === 'altitude'
+      ? { terrainTiles: this.tileIndices, metadata: false }
+      : { terrainTiles: [], drawingTiles: this.tileIndices, metadata: false };
   }
 
   private apply(grid: Int16TiledGrid, side: 'before' | 'after'): MapChange {
     for (const diff of this.diffs) grid.tiles[diff.tileIndex].set(diff[side]);
-    return { terrainTiles: this.tileIndices, metadata: false };
+    return this.change;
   }
 }
 
@@ -47,7 +55,10 @@ export class TerrainEditCommand implements Command {
 export class TileChangeRecorder {
   private readonly before = new Map<number, Int16Array>();
 
-  constructor(private readonly grid: Int16TiledGrid) {}
+  constructor(
+    private readonly grid: Int16TiledGrid,
+    private readonly layer: TerrainLayer = 'altitude',
+  ) {}
 
   touch(tileIndex: number): void {
     if (!this.before.has(tileIndex)) this.before.set(tileIndex, this.grid.tiles[tileIndex].slice());
@@ -60,7 +71,7 @@ export class TileChangeRecorder {
       if (!sameContent(before, after)) diffs.push({ tileIndex, before, after });
     }
     this.before.clear();
-    return diffs.length > 0 ? new TerrainEditCommand(label, diffs) : null;
+    return diffs.length > 0 ? new TerrainEditCommand(label, diffs, this.layer) : null;
   }
 }
 

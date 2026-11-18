@@ -1,3 +1,4 @@
+import { decodeDrawingCell } from '../drawing/drawing-cell';
 import { MapFactory } from '../map/map-factory';
 import { DEFAULT_MAP_SETTINGS } from '../map/map-settings';
 import { getCell, setCell } from '../terrain/tiled-grid';
@@ -40,6 +41,7 @@ describe('container + serializer', () => {
     expect(restored.name).toBe('Pangée');
     expect(restored.settings).toEqual(original.settings);
     expect(getCell(restored.terrain.baseAltitudeM, 257, 3)).toBe(8848);
+    expect(getCell(restored.terrain.drawing, 0, 0)).toBe(0);
   });
 
   it('rejects foreign or truncated files with a MapFormatError', () => {
@@ -74,6 +76,20 @@ describe('migrations', () => {
   it('v1 → v2 adds "continue" on every edge', () => {
     const migrated = migrateToCurrent({ header: { formatVersion: 1, settings: { seed: 1 } }, blocks: new Map() }, MIGRATIONS, 2);
     expect(migrated.header['settings']).toEqual({ seed: 1, beyondEdges: { north: 'continue', south: 'continue', east: 'continue', west: 'continue' } });
+  });
+
+  it('v3 → v4 guesses a drawing from the altitudes', () => {
+    // A v3 document = today's document without the drawing grid.
+    const current = mapToDocument(sampleMap());
+    const grids = current.header['grids'] as { block: string }[];
+    const v3: RawMapDocument = {
+      header: { ...current.header, formatVersion: 3, grids: grids.filter((g) => g.block !== 'drawing') },
+      blocks: new Map([...current.blocks].filter(([name]) => name !== 'drawing')),
+    };
+    const restored = mapFromDocument(v3);
+    // (257, 3) is at 8848 m but surrounded by sea at -200 m: an island of high mountain.
+    expect(decodeDrawingCell(getCell(restored.terrain.drawing, 257, 3))).toEqual({ land: true, relief: 'highMountain', forest: 'none' });
+    expect(getCell(restored.terrain.drawing, 100, 100)).toBe(0);
   });
 
   it('refuses files newer than supported, or with a gap in the chain', () => {

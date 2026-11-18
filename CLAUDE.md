@@ -5,8 +5,24 @@ Sous-projet de **Pangea** (jeu de gestion de réseau ferroviaire contemplatif, s
 
 ## Objectif
 
-- **Maintenant** : créer en détail et visualiser un monde imaginé. On règle la forme, le relief, le climat et les saisons, et on nomme les régions, les fleuves, les montagnes, les mers et les villages.
+- **Maintenant** : **dessiner** soi-même une carte qui ressemble à une carte fantasy illustrée, la modifier à volonté, puis la **convertir en monde** (relief, climat, saisons, fleuves) ; nommer régions, fleuves, montagnes, mers et villages.
 - **Plus tard** : exporter des données exploitables pour fabriquer la vraie carte de jeu (heightmap pour Godot, etc.). Toute décision de modèle doit garder cette porte ouverte.
+- **Critère de jugement** : « est-ce que ça rend une carte fantasy plus facile à dessiner ou plus belle ? ». Le réalisme physique est un moyen, pas le but (voir « Carte de test : Japon »).
+
+## Dessiner d'abord (direction depuis le 18/11/2026)
+
+Maquette validée : https://claude.ai/artifact/5TRnNeR3W9MGvST5S8DS8W (prototype cliquable).
+
+- Deux étapes visibles dans l'UI : **1 Dessiner → 2 Convertir en monde**. On dessine directement dans le look illustré (parchemin, mer sarcelle, halo, pictos) ; la conversion fabrique le monde physique (altitudes) sur lequel tournent le climat et l'hydrologie existants.
+- **Le dessin est la donnée maîtresse.** Le monde est recalculé depuis le dessin à chaque conversion (comme le climat). Les outils existants (pinceaux d'altitude, sections Relief/Climat/Eaux/Noms) **restent** côté Monde pour l'instant.
+- Calque **Dessin** = une grille par cellule (mêmes tuiles que l'altitude) : terre/mer, **relief en 4 classes** (plaine, collines, moyenne montagne, haute montagne), **forêts en 3 types** (feuillus, résineux, tropicale) ; plus les **fleuves tracés** (polylignes source → embouchure, étape D5).
+- Pinceau de zones « à la Foundation » : large, bord irrégulier **stable** (bruit déterministe lié au lieu, pas au geste), réglage « Bord » net → découpé. La plaine sert de gomme du relief.
+- **Les fleuves font loi** : à la conversion, chaque fleuve tracé creuse sa vallée avec une pente qui descend toujours vers l'embouchure ; le relief s'adapte autour (un fleuve qui traverse une haute montagne = une gorge). Le principe « on ne force jamais un tracé » de l'hydrologie automatique ne vaut plus pour les fleuves dessinés.
+- **Avertissements, jamais de blocage** (panneau « À vérifier ») : forêt incohérente avec le climat (tropicale trop au nord…), fleuve qui ne finit ni en mer, ni dans un lac, ni sur un autre fleuve.
+- Tracé des fleuves : le clic point par point de la maquette **n'est pas évident** (retour d'Henri) → à revoir à l'étape D5 (piste : glisser à main levée de la source vers la mer, trait simplifié puis lissé).
+- **Implémenté (D2)** : `terrain.drawing` = `Int16TiledGrid` (mêmes tuiles que l'altitude, pour réutiliser diff d'annulation, IndexedDB par tuile et format) avec cellules codées sur 5 bits (`domain/drawing/drawing-cell.ts` : bit 0 terre, bits 1–2 relief, bits 3–4 forêt ; mer = 0). Format **v4** : migration v3→v4 qui **devine un dessin depuis l'altitude** (terre = hors masque de mer, classe de relief par tranche 0/200/600/1500 m, sans forêt) ; `MapFactory.fromAltitudes` et le script du Japon font de même. `MapChange.drawingTiles`, `ChangedTiles` par grille pour l'auto-save. Pinceau `paintDrawing` (bord mordu par un fBm en km, période 14 km, jusqu'à 50 % du rayon). Une édition du dessin n'invalide **pas** le climat (il lit l'altitude jusqu'à D6). Rendu `rendering/drawing/` : **pyramide de couverture terre** (mipmap, niveau 0 = moyenne 3×3) ; tuiles de 256 px à des niveaux en puissance de 2, cache LRU (256 tuiles), budget 10 ms par image, tuiles périmées gardées à l'écran jusqu'à leur nouveau rendu, repli sur un autre niveau si une tuile manque. Côte = seuil ½ de la couverture (+ bruit de côte quand on zoome) et trait d'encre de 1 px ; halo = couverture lue à un niveau grossier (≈ 24 px à l'écran, sans champ de distance) ; taches et halo évalués tous les 4 px puis interpolés. **Limites mesurées** : une tuile coûte 8 à 15 ms (thread principal) ⇒ après un changement de niveau de zoom, l'affichage s'affine en ~0,3–0,5 s ; ouverture d'une carte 1700² : ~0,2 s pour la pyramide. Piste : rendu des tuiles dans un Worker (étape 8).
+- **Implémenté (D3)** : outils Plaine / Collines / Moyenne / Haute montagne (touches 1–4 ; la plaine sert de gomme ; le relief ne se peint que sur la terre). Pictos dessinés **dans les tuiles** (`rendering/drawing/drawing-glyphs.ts`) : treillis jitté (pas 17 px CSS, jitter 1) dans l'espace pixel du niveau de tuile, déterministe (graine + niveau + coordonnées du treillis) ⇒ un picto à cheval sur deux tuiles est identique des deux côtés ; tri arrière → avant ; collines clairsemées (60 %), montagnes qui se chevauchent en chaînes, calotte de neige sur la haute montagne (`drawMountainGlyph(…, snow)`). **Zoom sémantique des pictos** : taille ∝ zoom^0,45 depuis le niveau où la carte tient dans ~800 px (bornée 0,8–2,5) — constant, la chaîne vue de près devenait un champ uniforme ; proportionnel, quelques géants. Lavis ocre léger selon la classe moyenne (pyramide `RELIEF_VALUE`) pour lire les zones de loin. Le Japon (dessin déduit de l'altitude) est couvert de pictos : normal tant que D7 n'a pas affiné la conversion inverse.
+- Le Japon sera aussi converti **à l'envers** (altitude → classes de relief, fleuves calculés → fleuves tracés, climat → forêts) pour tester l'aller-retour.
 
 ## Façon de travailler avec moi (Henri)
 
@@ -225,6 +241,8 @@ Zoom sémantique, avec trois niveaux indicatifs (ajustables) :
 
 ## Interface (chrome de l'éditeur)
 
+**Refonte en cours (étape D2+)** selon la maquette « Dessiner d'abord » : barre du haut (menu « Mes cartes », nom, annuler/rétablir, bascule **1 Dessiner → 2 Convertir en monde**), palette d'outils à gauche en groupes numérotés dans l'ordre conseillé (Terre et mer, Relief, Forêts, Eaux) avec picto + nom en clair + raccourci, barre de pinceau flottante (taille en km, bord), panneau droit (aide de l'outil, « À vérifier », raccourcis). Brutalisme **adouci** : parchemin et encre gardés, coins arrondis, ombres légères, libellés partout. L'interface actuelle (ci-dessous) devient le mode Monde, à harmoniser ensuite.
+
 Style **néo-brutalisme sur parchemin**, palette « C1 Encre & ocre » (maquettes : https://claude.ai/artifact/EnBzBz4x8FrS3a2jhmYAPw).
 
 - Traits d'encre épais (3–4 px), ombres pleines décalées, aplats ; un bouton actif « s'enfonce » (perd son ombre).
@@ -244,7 +262,7 @@ Style **néo-brutalisme sur parchemin**, palette « C1 Encre & ocre » (maquette
 - `npm run sample:japan` (script `scripts/build-sample-japan.ts`, tuiles en cache dans `scripts/.cache`) → `public/samples/japon.cartocraft`.
 - Installée dans IndexedDB par `SampleMaps` avec un id fixe (`sample-japon`). **Incrémenter `SAMPLE_JAPAN.version`** (`application/samples.ts`) à chaque régénération : l'app remplace alors la copie locale (les retouches locales de l'exemple sont perdues). Une carte d'exemple supprimée n'est réinstallée qu'à la version suivante.
 - Noms : `scripts/japan-places.ts` (lat/lon réels, projetés comme le relief) : 32 villes, 18 sommets, mers et détroits, îles et péninsules, 10 plaines/chaînes et 6 baies en zones, 10 chaînes en lignes, 16 fleuves (le script calcule le climat et les fleuves pour accrocher chaque nom au plus gros cours d'eau à ≤ 8 km), 12 lacs.
-- **À tenir à jour à chaque étape** (fleuves nommés, villes, régions…) ; c'est la référence pour juger le réalisme (comparer aux stations : Sapporo, Niigata, Tokyo, Osaka, Kagoshima, Vladivostok, Busan).
+- **À tenir à jour à chaque étape** (fleuves nommés, villes, régions…). Elle sert de **test de non-régression** de la physique (stations : Sapporo, Niigata, Tokyo, Osaka, Kagoshima, Vladivostok, Busan), **pas d'objectif** : le calibrage climatique est gelé. L'étalon de l'utilisabilité et du rendu est une carte fantasy dessinée à la main.
 
 ## Import d'un dessin de carte
 
@@ -283,6 +301,16 @@ Dépôt GitHub : **`cartocraft`**. L'interface sera publiée plus tard sur `http
 7. **Style illustré** : pictos de montagnes et forêts, hachures de vagues, halo côtier, typo. Bouton **« Rendre la carte »** qui bascule entre la vue *édition* (teintes hypsométriques lisibles, actuelle) et la vue *rendu* (style illustré, accordé à la charte parchemin).
 8. **Niveaux de détail** : retouches haute résolution en quadtree, détail procédural, rendu par tuiles en Workers.
 9. **Export** image (PNG avec cadre, cartouche, rose, échelle) puis heightmap pour Godot.
+
+Étapes 1 à 7 faites (sauf hachures de vagues) ; 8 et 9 en attente. **Nouvelle priorité : « Dessiner d'abord »** :
+
+- **D1** Maquette de l'interface (faite, validée).
+- **D2** Calque Dessin + pinceau terre/mer + rendu parchemin en direct, par tuiles ; nouvelle coquille d'interface (fait).
+- **D3** Zones de relief (4 classes) + pictos (fait).
+- **D4** Forêts (3 types) + pictos + avertissements climat.
+- **D5** Fleuves tracés (geste à revoir, voir plus haut).
+- **D6** Conversion dessin → monde (altitudes, vallées des fleuves), puis climat et hydrologie existants.
+- **D7** Japon → dessin (conversion inverse).
 
 Chaque étape doit être utilisable à la fin. Ne pas commencer l'étape suivante avec des bugs connus non signalés.
 

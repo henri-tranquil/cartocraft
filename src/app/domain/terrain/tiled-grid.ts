@@ -147,3 +147,19 @@ export function toRowMajor(grid: Int16TiledGrid): Int16Array {
   }
   return out;
 }
+
+/** Builds a tiled grid from a row-major array (inverse of `toRowMajor`). Values are clamped to Int16. */
+export function fromRowMajor(values: ArrayLike<number>, widthCells: number, heightCells: number, tileSize = DEFAULT_TILE_SIZE): Int16TiledGrid {
+  if (values.length !== widthCells * heightCells) {
+    throw new RangeError(`Expected ${widthCells * heightCells} values, got ${values.length}`);
+  }
+  const grid = createInt16TiledGrid(widthCells, heightCells, 0, tileSize);
+  for (let y = 0; y < heightCells; y++) {
+    const tileRow = ((y / tileSize) | 0) * grid.tilesX;
+    const rowInTile = (y % tileSize) * tileSize;
+    for (let x = 0; x < widthCells; x++) {
+      grid.tiles[tileRow + ((x / tileSize) | 0)][rowInTile + (x % tileSize)] = clampInt16(values[y * widthCells + x]);
+    }
+  }
+  return grid;
+}

@@ -58,6 +58,7 @@ export const VINTAGE = {
   mountainTargetPx: 22,
   mountainLit: 'rgb(226 214 190)',
   mountainShade: 'rgb(150 132 108)',
+  snowCap: 'rgb(250 248 242)',
 
   /** Forest glyphs: width as a fraction of the mountain width, grid spacing (× width). */
   treeWidthRatio: 0.38,

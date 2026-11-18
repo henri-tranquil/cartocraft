@@ -8,6 +8,8 @@ export interface ToolContext {
   readonly map: WorldMap;
   /** Live feedback: the renderer redraws this area on the next frame. */
   markTerrainDirty(rect: CellRect): void;
+  /** Same for the drawing layer. */
+  markDrawingDirty(rect: CellRect): void;
 }
 
 /** A finished gesture: the undoable command, and what it changed (already applied). */

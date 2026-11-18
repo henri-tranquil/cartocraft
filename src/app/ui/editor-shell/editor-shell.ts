@@ -5,7 +5,11 @@ import { ClimatePanel } from '../climate-panel/climate-panel';
 import { NamesPanel } from '../names-panel/names-panel';
 import { Icon, IconName } from '../icon/icon';
 import { MapCanvas } from '../map-canvas/map-canvas';
-import { MapList } from '../map-list/map-list';
+import { MapsMenu } from '../maps-menu/maps-menu';
+import { BrushBar } from '../draw-palette/brush-bar';
+import { DrawHelp } from '../draw-palette/draw-help';
+import { DrawPalette } from '../draw-palette/draw-palette';
+import { drawToolForKey } from '../draw-palette/draw-tools';
 import { NewMapDialog, NewMapRequest } from '../new-map-dialog/new-map-dialog';
 import { SketchImportDialog } from '../sketch-import-dialog/sketch-import-dialog';
 import { ToolPanel, toolForKey } from '../tool-panel/tool-panel';
@@ -30,6 +34,9 @@ const SECTIONS: readonly SectionDef[] = [
   { id: 'render', icon: 'render', short: 'Rendu', label: 'Rendu : la carte illustrée, à l’ancienne', available: true },
 ];
 
+/** [ and ] change the brush size by this factor (multiplicative: fine when small, fast when large). */
+const BRUSH_KEY_STEP = 1.25;
+
 const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
   idle: '',
   pending: 'Modifications non enregistrées',
@@ -39,198 +46,220 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
 };
 
 /**
- * Layout, left to right: dark bar (saved maps as squares, new, import),
- * section bar, tool panel (current-map actions at the bottom), then the map.
+ * Layout: top bar (maps menu, name, undo, the two workflow steps), then
+ * - step 1 « Dessiner »: tool palette | map with the brush bar | help panel;
+ * - step 2 « Monde »: section bar | section panel | map.
  */
 @Component({
   selector: 'cc-editor-shell',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ClimatePanel, Icon, MapCanvas, MapList, NamesPanel, NewMapDialog, SketchImportDialog, ToolPanel],
+  imports: [BrushBar, ClimatePanel, DrawHelp, DrawPalette, Icon, MapCanvas, MapsMenu, NamesPanel, NewMapDialog, SketchImportDialog, ToolPanel],
   host: {
     '(window:keydown)': 'onKeydown($event)',
   },
   template: `
-    <header class="banner">
-      <cc-icon class="banner-logo" name="compass" [size]="22" [strokeWidth]="2.2" />
-      <h1 class="banner-title">Cartocraft</h1>
-      <span class="banner-tagline">atelier de cartes du monde</span>
-    </header>
-    <div class="body">
-    <nav class="maps" aria-label="Mes cartes">
-      <cc-map-list class="map-list" />
-      <button type="button" class="square-btn" aria-label="Nouvelle carte" title="Créer une nouvelle carte" (click)="newMapDialog.open()">
-        <cc-icon name="plus" [size]="18" [strokeWidth]="2.8" />
-      </button>
-      <label class="square-btn" title="Importer un fichier .cartocraft (crée une nouvelle carte)">
-        <cc-icon name="import" [size]="17" [strokeWidth]="2.4" />
-        <input type="file" class="visually-hidden" aria-label="Importer une carte" [accept]="facade.fileExtension" (change)="import($event)" />
-      </label>
-      <label class="square-btn" title="Créer une carte depuis l’image d’un dessin (PNG, JPEG…)">
-        <cc-icon name="sketch" [size]="17" [strokeWidth]="2.2" />
-        <input type="file" class="visually-hidden" aria-label="Carte depuis un dessin" accept="image/*" (change)="importSketch($event, sketchDialog)" />
-      </label>
-    </nav>
-
-    <nav class="actions" aria-label="Sections et actions">
-      @for (section of sections; track section.id) {
-        <button
-          type="button"
-          class="cc-btn shape-tampon act"
-          [class.act--apart]="section.id === 'render'"
-          [disabled]="!section.available || !facade.hasMap()"
-          [attr.aria-pressed]="facade.hasMap() && activeSection() === section.id"
-          [attr.aria-label]="section.label"
-          [title]="section.label"
-          (click)="activeSection.set(section.id)"
-        >
-          <cc-icon [name]="section.icon" [size]="17" [strokeWidth]="2" />
-          <span class="cc-caption">{{ section.short }}</span>
-        </button>
-      }
-    </nav>
-
-    @if (facade.hasMap()) {
-      <aside class="tools" [attr.aria-label]="activeLabel()">
-        <h2 class="heading"><cc-icon [name]="activeIcon()" [size]="14" [strokeWidth]="2.4" /> {{ activeShort() }}</h2>
-        @switch (activeSection()) {
-          @case ('relief') {
-            <cc-tool-panel />
-          }
-          @case ('climate') {
-            <cc-climate-panel />
-          }
-          @case ('water') {
-            <p class="hint">
-              Les fleuves sont calculés à partir du relief et des pluies, en même temps que le climat. Plus on zoome, plus les petits cours d’eau
-              apparaissent ; le débit s’affiche au survol. Pour déplacer un fleuve, creusez une vallée dans Relief : l’eau suivra la pente.
-            </p>
-          }
-          @case ('names') {
-            <cc-names-panel />
-          }
-          @case ('render') {
-            <p class="hint">Vue « carte ancienne », en lecture seule : le clic déplace la carte. Les fleuves et les noms y figurent.</p>
-          }
-        }
-        <div class="map-actions">
-          <button type="button" class="cc-btn shape-sceau" title="Exporter la carte en fichier .cartocraft" (click)="export()">
-            <cc-icon name="export" [size]="15" [strokeWidth]="2.4" />
-            <span class="cc-caption">Exporter</span>
-          </button>
-          <button type="button" class="cc-btn shape-sceau" title="Dupliquer la carte ouverte" (click)="duplicate()">
-            <cc-icon name="copy" [size]="15" [strokeWidth]="2.4" />
-            <span class="cc-caption">Copier</span>
-          </button>
-          <button type="button" class="cc-btn cc-btn--danger shape-sceau" title="Supprimer la carte ouverte" (click)="remove()">
-            <cc-icon name="trash" [size]="15" [strokeWidth]="2.4" />
-            <span class="cc-caption">Suppr.</span>
-          </button>
-        </div>
-      </aside>
-    }
-
-    <main class="main">
-      @if (facade.error(); as error) {
-        <div class="error cc-panel" role="alert">
-          <span>{{ error }}</span>
-          <button type="button" class="cc-btn shape-sceau dismiss" aria-label="Fermer" (click)="facade.dismissError()">
-            <cc-icon name="close" [size]="12" [strokeWidth]="3" />
-          </button>
-        </div>
-      }
-
+    <header class="top">
+      <span class="brand"><cc-icon name="compass" [size]="20" [strokeWidth]="2.2" /> Cartocraft</span>
+      <cc-maps-menu (newMap)="newMapDialog.open()" (sketch)="sketchDialog.open($event)" />
       @if (facade.hasMap()) {
-        <header class="title">
-          <input
-            class="map-name"
-            aria-label="Nom de la carte"
-            [value]="facade.mapName()"
-            (change)="rename($event)"
-            (keydown.enter)="blur($event)"
-          />
+        <input
+          class="map-name"
+          aria-label="Nom de la carte"
+          [value]="facade.mapName()"
+          (change)="rename($event)"
+          (keydown.enter)="blur($event)"
+        />
+        <span class="spacer"></span>
+        <div class="history">
           <button
             type="button"
-            class="cc-btn shape-sceau history"
+            class="ghost"
             [title]="'Ctrl+Z' + (facade.undoLabel() ? ' — ' + facade.undoLabel() : '')"
             [disabled]="!facade.undoLabel()"
             (click)="facade.undo()"
           >
-            <cc-icon name="undo" [size]="14" [strokeWidth]="2.4" />
-            <span class="cc-caption">Annuler</span>
+            <cc-icon name="undo" [size]="14" [strokeWidth]="2.4" /> Annuler
           </button>
           <button
             type="button"
-            class="cc-btn shape-sceau history"
-            [title]="'Ctrl+Y' + (facade.redoLabel() ? ' — ' + facade.redoLabel() : '')"
+            class="ghost"
+            aria-label="Rétablir"
+            [title]="'Rétablir (Ctrl+Y)' + (facade.redoLabel() ? ' — ' + facade.redoLabel() : '')"
             [disabled]="!facade.redoLabel()"
             (click)="facade.redo()"
           >
             <cc-icon name="redo" [size]="14" [strokeWidth]="2.4" />
-            <span class="cc-caption">Rétablir</span>
           </button>
           <span class="save" [class]="'save save--' + facade.saveStatus()" [title]="saveLabel()" role="status" [attr.aria-label]="saveLabel()"></span>
-        </header>
-        <div class="frame">
-          <div class="frame-inner"><cc-map-canvas /></div>
         </div>
-      } @else {
-        <div class="empty">
-          <button type="button" class="cc-btn cc-btn--primary shape-tampon" (click)="newMapDialog.open()">
-            <cc-icon name="plus" [size]="16" [strokeWidth]="2.6" /> Nouvelle carte
+        <div class="steps" role="group" aria-label="Étape">
+          <button type="button" [attr.aria-pressed]="facade.workspace() === 'draw'" title="Dessiner la carte : terres, relief, forêts, fleuves" (click)="facade.setWorkspace('draw')">
+            <b>1</b> Dessiner
+          </button>
+          <cc-icon name="arrowRight" [size]="14" [strokeWidth]="2.2" />
+          <button type="button" [attr.aria-pressed]="facade.workspace() === 'world'" [title]="worldTitle" (click)="facade.setWorkspace('world')">
+            <b>2</b> Monde
           </button>
         </div>
+      } @else {
+        <span class="spacer"></span>
       }
-    </main>
+    </header>
 
+    <div class="body">
+      @if (facade.hasMap()) {
+        @if (facade.workspace() === 'draw') {
+          <aside class="palette" aria-label="Outils de dessin"><cc-draw-palette /></aside>
+        } @else {
+          <nav class="actions" aria-label="Sections">
+            @for (section of sections; track section.id) {
+              <button
+                type="button"
+                class="cc-btn shape-tampon act"
+                [class.act--apart]="section.id === 'render'"
+                [disabled]="!section.available"
+                [attr.aria-pressed]="activeSection() === section.id"
+                [attr.aria-label]="section.label"
+                [title]="section.label"
+                (click)="activeSection.set(section.id)"
+              >
+                <cc-icon [name]="section.icon" [size]="17" [strokeWidth]="2" />
+                <span class="cc-caption">{{ section.short }}</span>
+              </button>
+            }
+          </nav>
+          <aside class="tools" [attr.aria-label]="activeLabel()">
+            <h2 class="heading"><cc-icon [name]="activeIcon()" [size]="14" [strokeWidth]="2.4" /> {{ activeShort() }}</h2>
+            @switch (activeSection()) {
+              @case ('relief') {
+                <cc-tool-panel />
+              }
+              @case ('climate') {
+                <cc-climate-panel />
+              }
+              @case ('water') {
+                <p class="hint">
+                  Les fleuves sont calculés à partir du relief et des pluies, en même temps que le climat. Plus on zoome, plus les petits cours d’eau
+                  apparaissent ; le débit s’affiche au survol. Pour déplacer un fleuve, creusez une vallée dans Relief : l’eau suivra la pente.
+                </p>
+              }
+              @case ('names') {
+                <cc-names-panel />
+              }
+              @case ('render') {
+                <p class="hint">Vue « carte ancienne », en lecture seule : le clic déplace la carte. Les fleuves et les noms y figurent.</p>
+              }
+            }
+            <p class="hint world-note">
+              Le monde garde pour l’instant son propre relief : la conversion depuis le dessin arrive bientôt.
+            </p>
+          </aside>
+        }
+      }
+
+      <main class="main">
+        @if (facade.error(); as error) {
+          <div class="error" role="alert">
+            <span>{{ error }}</span>
+            <button type="button" class="cc-btn shape-sceau dismiss" aria-label="Fermer" (click)="facade.dismissError()">
+              <cc-icon name="close" [size]="12" [strokeWidth]="3" />
+            </button>
+          </div>
+        }
+        @if (facade.hasMap()) {
+          <div class="frame">
+            <div class="frame-inner"><cc-map-canvas /></div>
+            @if (facade.workspace() === 'draw' && facade.drawTool() !== 'pan') {
+              <cc-brush-bar class="brush" />
+            }
+          </div>
+        } @else {
+          <div class="empty">
+            <p>Aucune carte ouverte.</p>
+            <button type="button" class="cc-btn cc-btn--primary shape-tampon" (click)="newMapDialog.open()">
+              <cc-icon name="plus" [size]="16" [strokeWidth]="2.6" /> Nouvelle carte
+            </button>
+          </div>
+        }
+      </main>
+
+      @if (facade.hasMap() && facade.workspace() === 'draw') {
+        <aside class="help" aria-label="Aide"><cc-draw-help /></aside>
+      }
     </div>
     <cc-new-map-dialog #newMapDialog (create)="create($event)" />
     <cc-sketch-import-dialog #sketchDialog (create)="createFromSketch($event)" />
   `,
   styles: `
     :host { display: flex; flex-direction: column; height: 100vh; }
-    .banner { flex: none; display: flex; align-items: baseline; gap: 10px; padding: 6px 16px; background: var(--cc-side); color: var(--cc-side-fg); border-bottom: var(--cc-border-strong) solid var(--cc-accent); }
-    .banner-logo { align-self: center; color: var(--cc-accent); }
-    .banner-title { margin: 0; font-family: var(--cc-font-map); font-weight: 400; font-size: 24px; letter-spacing: 1px; line-height: 1.1; }
-    .banner-tagline { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; opacity: 0.75; }
-    .body { flex: 1; min-height: 0; display: flex; }
 
-    .maps { width: 60px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 12px 0; background: var(--cc-side); overflow-y: auto; }
-    .act--apart { margin-top: 10px; }
-    .act--apart::before { content: ''; position: absolute; top: -10px; left: 4px; right: 4px; border-top: var(--cc-border) dashed var(--cc-ink); }
-    .hint { margin: 0; font-size: 12px; color: var(--cc-muted); line-height: 1.45; }
-
-    .actions { width: 70px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 0; border-right: var(--cc-border-strong) solid var(--cc-ink); overflow-y: auto; }
-    .act { width: 52px; height: 46px; flex: none; flex-direction: column; gap: 3px; --cc-shadow: 2px; }
-    .square-btn {
-      width: 40px; height: 40px; flex: none; display: flex; align-items: center; justify-content: center; cursor: pointer;
-      background: transparent; color: var(--cc-side-fg); border: var(--cc-border) dashed var(--cc-side-fg);
+    .top {
+      flex: none; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 14px;
+      background: var(--cc-side); color: var(--cc-side-fg);
     }
-    .square-btn:hover { background: var(--cc-side-fg); color: var(--cc-side); border-style: solid; }
-    .square-btn:focus-within, .square-btn:focus-visible { outline: 2px solid var(--cc-accent); outline-offset: 2px; }
-    .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-
-    .heading { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
-    .map-actions { margin-top: auto; padding-top: 12px; border-top: var(--cc-border) solid var(--cc-ink); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-    .map-actions .cc-btn { height: 46px; flex-direction: column; gap: 4px; --cc-radius: 14px; --cc-shadow: 2px; }
-    .tools { width: 208px; flex: none; display: flex; flex-direction: column; gap: 14px; padding: 14px 12px; border-right: var(--cc-border-strong) solid var(--cc-ink); overflow: auto; }
-
-    .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 12px 16px 16px; }
-    .title { display: flex; align-items: center; gap: 8px; border-bottom: var(--cc-border) solid var(--cc-ink); padding-bottom: 6px; }
-    .map-name { flex: 1; min-width: 0; border: 0; background: transparent; color: inherit; font-family: var(--cc-font-map); font-size: 26px; line-height: 1.15; letter-spacing: 0.5px; outline: none; }
-    .map-name:focus-visible { background: var(--cc-panel); }
-    .history { height: 28px; padding: 0 10px; --cc-shadow: 2px; }
-    .save { width: 12px; height: 12px; margin-left: 6px; border-radius: 50%; border: var(--cc-border) solid var(--cc-ink); background: var(--cc-panel); }
+    .brand { display: inline-flex; align-items: center; gap: 8px; font-family: var(--cc-font-map); font-size: 21px; letter-spacing: 0.5px; }
+    .brand cc-icon { color: var(--cc-accent); }
+    .map-name {
+      min-width: 0; width: 260px; padding: 3px 6px; border: 1px dashed transparent; border-radius: 6px; outline: none;
+      background: transparent; color: inherit; font-family: var(--cc-font-map); font-size: 18px;
+    }
+    .map-name:hover { border-color: var(--cc-side-line); }
+    .map-name:focus-visible { border-color: var(--cc-accent); }
+    .spacer { flex: 1; }
+    .history { display: flex; align-items: center; gap: 4px; }
+    .ghost {
+      display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; cursor: pointer; font: inherit;
+      background: transparent; color: var(--cc-side-fg); border: 1px solid var(--cc-side-line); border-radius: var(--cc-radius-soft);
+    }
+    .ghost:hover:not(:disabled) { border-color: var(--cc-accent); }
+    .ghost:disabled { opacity: 0.4; cursor: default; }
+    .save { width: 10px; height: 10px; margin-left: 6px; border-radius: 50%; border: 1.5px solid var(--cc-side-fg); }
     .save--saved { background: var(--cc-ok); }
     .save--pending, .save--saving { background: var(--cc-accent); }
     .save--error { background: var(--cc-danger); }
+    .steps { display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 999px; background: #3a3226; color: var(--cc-side-fg); }
+    .steps button {
+      display: inline-flex; align-items: center; gap: 6px; padding: 5px 14px; border: 0; border-radius: 999px; cursor: pointer;
+      background: transparent; color: inherit; font: inherit; font-weight: 600;
+    }
+    .steps button b { font-size: 11px; opacity: 0.7; }
+    .steps button[aria-pressed='true'] { background: var(--cc-accent); color: var(--cc-ink); }
+    .steps cc-icon { opacity: 0.6; }
 
-    .frame { flex: 1; min-height: 0; position: relative; background: var(--cc-panel); border: var(--cc-border-strong) solid var(--cc-ink); box-shadow: 5px 5px 0 var(--cc-ink); }
-    .frame-inner { position: absolute; inset: 6px; border: 1px solid var(--cc-ink); overflow: hidden; }
+    .body { flex: 1; min-height: 0; display: flex; gap: 12px; padding: 12px; }
+    .palette, .help { flex: none; overflow-y: auto; }
+    .palette {
+      width: 230px; padding: 12px; background: var(--cc-panel); border: var(--cc-border) solid var(--cc-ink);
+      border-radius: var(--cc-radius-soft); box-shadow: 3px 3px 0 var(--cc-ink);
+    }
+    .help { width: 250px; }
 
-    .error { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.4rem 0.6rem; background: var(--cc-danger); color: var(--cc-panel); font-weight: 600; }
+    .actions { width: 64px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 8px; overflow-y: auto; }
+    .act { width: 52px; height: 46px; flex: none; flex-direction: column; gap: 3px; --cc-shadow: 2px; }
+    .act--apart { margin-top: 10px; }
+    .act--apart::before { content: ''; position: absolute; top: -10px; left: 4px; right: 4px; border-top: var(--cc-border) dashed var(--cc-ink); }
+    .tools {
+      width: 208px; flex: none; display: flex; flex-direction: column; gap: 14px; padding: 14px 12px; overflow: auto;
+      background: var(--cc-panel); border: var(--cc-border) solid var(--cc-ink); border-radius: var(--cc-radius-soft);
+    }
+    .heading { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+    .hint { margin: 0; font-size: 12px; color: var(--cc-muted); line-height: 1.45; }
+    .world-note { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--cc-line); }
+
+    .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+    .frame {
+      flex: 1; min-height: 0; position: relative; background: var(--cc-panel);
+      border: var(--cc-border-strong) solid var(--cc-ink); border-radius: var(--cc-radius-soft); overflow: hidden;
+    }
+    .frame-inner { position: absolute; inset: 0; }
+    .brush { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); width: max-content; max-width: calc(100% - 24px); }
+
+    .error {
+      display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.4rem 0.6rem;
+      background: var(--cc-danger); color: var(--cc-panel); font-weight: 600; border-radius: var(--cc-radius-soft);
+    }
     .dismiss { width: 26px; height: 26px; --cc-shadow: 2px; }
-    .empty { flex: 1; display: flex; align-items: center; justify-content: center; }
-
+    .empty { flex: 1; display: flex; flex-direction: column; gap: 12px; align-items: center; justify-content: center; color: var(--cc-muted); }
   `,
 })
 export class EditorShell implements OnInit {
@@ -242,6 +271,8 @@ export class EditorShell implements OnInit {
   protected readonly activeIcon = computed(() => this.active().icon);
   protected readonly activeShort = computed(() => this.active().short);
   protected readonly saveLabel = computed(() => SAVE_STATUS_LABELS[this.facade.saveStatus()]);
+  protected readonly worldTitle = 'Le monde : relief, climat et saisons, fleuves, noms, rendu illustré';
+  private readonly inWorld = computed(() => this.facade.workspace() === 'world');
 
   /** The URL is written only once the map it names is open (a reload must not erase it first). */
   private readonly started = signal(false);
@@ -252,19 +283,20 @@ export class EditorShell implements OnInit {
       if (!this.started()) return;
       const hash = formatUrlState({
         mapId: this.facade.currentMapId() ?? undefined,
+        workspace: this.facade.workspace(),
         section: this.activeSection(),
         tool: this.facade.activeTool(),
         view: this.facade.viewMode(),
       });
       if (location.hash !== hash) history.replaceState(history.state, '', hash);
     });
-    // Only the Relief panel edits the terrain; elsewhere a click just moves the map.
+    // World step: only the Relief panel edits the terrain; elsewhere a click just moves the map.
     effect(() => this.facade.setEditingEnabled(this.activeSection() === 'relief'));
-    effect(() => this.facade.setRendered(this.activeSection() === 'render'));
-    effect(() => this.facade.setNamesEditing(this.activeSection() === 'names'));
-    // The latitude ruler belongs to the Climate panel: leaving it closes the ruler.
+    effect(() => this.facade.setRendered(this.inWorld() && this.activeSection() === 'render'));
+    effect(() => this.facade.setNamesEditing(this.inWorld() && this.activeSection() === 'names'));
+    // The latitude ruler belongs to the Climate panel: leaving it (or the World step) closes the ruler.
     effect(() => {
-      if (this.activeSection() !== 'climate') this.facade.stopLatitudeEditing();
+      if (!this.inWorld() || this.activeSection() !== 'climate') this.facade.stopLatitudeEditing();
     });
   }
 
@@ -283,52 +315,19 @@ export class EditorShell implements OnInit {
   }
 
   private applyUrlState(state: UrlState): void {
+    if (state.workspace) this.facade.setWorkspace(state.workspace);
     if (state.section && SECTIONS.some((s) => s.id === state.section && s.available)) this.activeSection.set(state.section);
     if (state.tool) this.facade.selectTool(state.tool);
     if (state.view) this.facade.setViewMode(state.view);
   }
 
   protected create(request: NewMapRequest): void {
+    this.facade.setWorkspace('draw'); // a new map starts as an empty sea to draw on
     void this.facade.createBlankMap(request.settings, request.name);
-  }
-
-  protected importSketch(event: Event, dialog: SketchImportDialog): void {
-    if (!(event.target instanceof HTMLInputElement)) return;
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (file) void dialog.open(file);
   }
 
   protected createFromSketch(request: SketchMapRequest): void {
     void this.facade.createMapFromSketch(request);
-  }
-
-  protected async import(event: Event): Promise<void> {
-    if (!(event.target instanceof HTMLInputElement)) return;
-    const file = event.target.files?.[0];
-    event.target.value = ''; // allow re-importing the same file
-    if (file) await this.facade.importMapFile(file);
-  }
-
-  protected async export(): Promise<void> {
-    const exported = await this.facade.exportCurrentMap();
-    if (!exported) return;
-    const url = URL.createObjectURL(exported.blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = exported.fileName;
-    link.click();
-    URL.revokeObjectURL(url);
-  }
-
-  protected duplicate(): void {
-    const id = this.facade.currentMapId();
-    if (id) void this.facade.duplicateMap(id);
-  }
-
-  protected remove(): void {
-    const id = this.facade.currentMapId();
-    if (id && confirm(`Supprimer définitivement « ${this.facade.mapName()} » ?`)) void this.facade.deleteMap(id);
   }
 
   protected rename(event: Event): void {
@@ -353,8 +352,17 @@ export class EditorShell implements OnInit {
         this.facade.removeFeature(selected);
         return;
       }
-      const tool = event.altKey ? null : toolForKey(event.key);
-      if (tool && this.facade.hasMap()) {
+      if (event.altKey || !this.facade.hasMap()) return;
+      if (!this.inWorld()) {
+        const radiusKm = this.facade.drawingBrush().radiusKm;
+        if (event.key === '[') this.facade.setDrawingBrush({ radiusKm: radiusKm / BRUSH_KEY_STEP });
+        else if (event.key === ']') this.facade.setDrawingBrush({ radiusKm: radiusKm * BRUSH_KEY_STEP });
+        const drawTool = drawToolForKey(event.key);
+        if (drawTool) this.facade.selectDrawTool(drawTool);
+        return;
+      }
+      const tool = toolForKey(event.key);
+      if (tool) {
         this.facade.selectTool(tool);
         this.activeSection.set('relief');
       }

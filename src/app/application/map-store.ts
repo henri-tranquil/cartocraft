@@ -19,6 +19,8 @@ export class MapStore {
   private readonly currentRevision = signal(0);
   /** Areas the renderer must redraw. Consumed by a single reader (the canvas). */
   private dirtyRects: CellRect[] = [];
+  /** Same for the drawing layer (its own renderer). */
+  private dirtyDrawingRects: CellRect[] = [];
 
   readonly map = this.currentMap.asReadonly();
   readonly revision = this.currentRevision.asReadonly();
@@ -31,6 +33,7 @@ export class MapStore {
   setMap(map: WorldMap | null): void {
     const grid = map?.terrain.baseAltitudeM;
     this.dirtyRects = grid ? [{ x0: 0, y0: 0, x1: grid.widthCells - 1, y1: grid.heightCells - 1 }] : [];
+    this.dirtyDrawingRects = []; // a new map gets a new drawing renderer: nothing to invalidate
     this.currentMap.set(map);
     this.bump();
   }
@@ -40,6 +43,7 @@ export class MapStore {
     const map = this.currentMap();
     if (!map) return;
     for (const tile of change.terrainTiles) this.dirtyRects.push(tileRect(map.terrain.baseAltitudeM, tile));
+    for (const tile of change.drawingTiles ?? []) this.dirtyDrawingRects.push(tileRect(map.terrain.drawing, tile));
     map.updatedAt = new Date().toISOString();
     this.bump();
   }
@@ -47,6 +51,12 @@ export class MapStore {
   /** Live change during a gesture (not yet a command). */
   markTerrainDirty(rect: CellRect): void {
     this.dirtyRects.push(rect);
+    this.bump();
+  }
+
+  /** Live change of the drawing during a gesture. */
+  markDrawingDirty(rect: CellRect): void {
+    this.dirtyDrawingRects.push(rect);
     this.bump();
   }
 
@@ -61,6 +71,12 @@ export class MapStore {
   takeDirtyRects(): CellRect[] {
     const rects = this.dirtyRects;
     this.dirtyRects = [];
+    return rects;
+  }
+
+  takeDirtyDrawingRects(): CellRect[] {
+    const rects = this.dirtyDrawingRects;
+    this.dirtyDrawingRects = [];
     return rects;
   }
 

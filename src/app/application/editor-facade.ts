@@ -43,6 +43,9 @@ import {
   RaiseTerrainTool,
   SmoothTerrainTool,
 } from './tools/terrain-brush-tools';
+import { DrawingBrushOptions, DrawingBrushTool } from './tools/drawing-brush-tool';
+import { checkDrawing, DrawingWarning } from '../domain/drawing/drawing-checks';
+import { ReliefClass } from '../domain/drawing/drawing-cell';
 
 /** What the map shows: the editing relief view, or a climate field. */
 export type ViewMode = 'relief' | 'landscape' | 'temperature' | 'precipitation' | 'wind';
@@ -57,6 +60,17 @@ export interface ClimateOverlay {
 
 /** 'pan' is a view-only mode handled by the canvas; the others are EditorTools. */
 export type ToolId = 'pan' | 'raise' | 'lower' | 'smooth';
+
+/**
+ * The two steps of the workflow: draw the map (land, relief zones, forests,
+ * rivers) then look at the world converted from it (relief, climate, names).
+ */
+export type Workspace = 'draw' | 'world';
+
+/** Tools of the Draw step. 'pan' moves the map. */
+export type DrawToolId = 'pan' | 'land' | 'sea' | ReliefClass;
+
+export const DRAWING_BRUSH_LIMITS = { minRadiusKm: 1, maxRadiusKm: 300 } as const;
 
 export const TOOL_LABELS: Record<ToolId, string> = {
   pan: 'Déplacer',
@@ -104,6 +118,9 @@ export class EditorFacade {
   private readonly errorState = signal<string | null>(null);
   private readonly brushState = signal<BrushOptions>({ radiusKm: 25, strength: 0.5 });
   private readonly activeToolState = signal<ToolId>('raise');
+  private readonly workspaceState = signal<Workspace>('draw');
+  private readonly drawToolState = signal<DrawToolId>('land');
+  private readonly drawingBrushState = signal<DrawingBrushOptions>({ radiusKm: 30, roughness: 0.6 });
   /** False while a non-editing panel (maps, climate) is shown: the map can only be panned. */
   private readonly editingEnabledState = signal(true);
   /** Axial tilt being dragged on the map (tropic / polar circle), before it is committed. */
@@ -120,6 +137,14 @@ export class EditorFacade {
     smooth: new SmoothTerrainTool(() => this.brushState()),
   };
   /** Tool of the gesture in progress (pointer down), if any. */
+  private readonly drawTools: Record<Exclude<DrawToolId, 'pan'>, EditorTool> = {
+    land: new DrawingBrushTool('Peindre la terre', { kind: 'land' }, () => this.drawingBrushState()),
+    sea: new DrawingBrushTool('Peindre la mer', { kind: 'sea' }, () => this.drawingBrushState()),
+    plain: this.reliefTool('Peindre la plaine', 'plain'),
+    hills: this.reliefTool('Peindre des collines', 'hills'),
+    midMountain: this.reliefTool('Peindre la moyenne montagne', 'midMountain'),
+    highMountain: this.reliefTool('Peindre la haute montagne', 'highMountain'),
+  };
   private gestureTool: EditorTool | null = null;
   private holdTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -159,6 +184,16 @@ export class EditorFacade {
   /** The tool that actually handles the pointer: 'pan' whenever editing is disabled. */
   readonly effectiveTool = computed<ToolId>(() => (this.editingEnabledState() ? this.activeToolState() : 'pan'));
   readonly brush = this.brushState.asReadonly();
+  readonly workspace = this.workspaceState.asReadonly();
+  readonly drawTool = this.drawToolState.asReadonly();
+  readonly drawingBrush = this.drawingBrushState.asReadonly();
+  /** What a press on the map does, in either step ('pan' = move the map). */
+  readonly pointerTool = computed<ToolId | DrawToolId>(() => (this.workspaceState() === 'draw' ? this.drawToolState() : this.effectiveTool()));
+  /** Radius of the brush circle drawn under the pointer, or null when the press moves the map. */
+  readonly cursorRadiusKm = computed(() => {
+    if (this.pointerTool() === 'pan') return null;
+    return this.workspaceState() === 'draw' ? this.drawingBrushState().radiusKm : this.brushState().radiusKm;
+  });
 
   readonly viewMode = this.viewModeState.asReadonly();
   readonly rendered = this.renderedState.asReadonly();
@@ -186,6 +221,12 @@ export class EditorFacade {
   readonly renderClimate = this.climate.result;
   /** Rivers (null until the first climate run of the map). */
   readonly renderHydrology = this.climate.hydrology;
+  /** Checks of the drawing, refreshed after each finished gesture or undo (not during a stroke: it scans the grid). */
+  readonly drawingWarnings = computed<readonly DrawingWarning[]>(() => {
+    this.historyRevision();
+    const map = this.store.map();
+    return map ? checkDrawing(map.terrain.drawing) : [];
+  });
   readonly undoLabel = computed(() => {
     this.historyRevision();
     return this.history.undoLabel;
@@ -308,6 +349,10 @@ export class EditorFacade {
 
   takeDirtyRects(): CellRect[] {
     return this.store.takeDirtyRects();
+  }
+
+  takeDirtyDrawingRects(): CellRect[] {
+    return this.store.takeDirtyDrawingRects();
   }
 
   /** Altitude under a point, for the status bar; null outside the map. */
@@ -480,6 +525,21 @@ export class EditorFacade {
     if (!this.gestureTool) this.editingEnabledState.set(enabled);
   }
 
+  setWorkspace(workspace: Workspace): void {
+    if (!this.gestureTool) this.workspaceState.set(workspace);
+  }
+
+  selectDrawTool(id: DrawToolId): void {
+    if (!this.gestureTool) this.drawToolState.set(id);
+  }
+
+  setDrawingBrush(options: Partial<DrawingBrushOptions>): void {
+    this.drawingBrushState.update((b) => ({
+      radiusKm: clamp(options.radiusKm ?? b.radiusKm, DRAWING_BRUSH_LIMITS.minRadiusKm, DRAWING_BRUSH_LIMITS.maxRadiusKm),
+      roughness: clamp(options.roughness ?? b.roughness, 0, 1),
+    }));
+  }
+
   setBrush(options: Partial<BrushOptions>): void {
     this.brushState.update((b) => ({
       radiusKm: clamp(options.radiusKm ?? b.radiusKm, BRUSH_LIMITS.minRadiusKm, BRUSH_LIMITS.maxRadiusKm),
@@ -488,10 +548,10 @@ export class EditorFacade {
   }
 
   pointerDown(point: CellPoint): void {
-    const id = this.effectiveTool();
+    const id = this.pointerTool();
     const ctx = this.toolContext();
     if (id === 'pan' || !ctx || this.gestureTool) return;
-    const tool = this.tools[id];
+    const tool = this.toolFor(id);
     this.gestureTool = tool;
     tool.begin(ctx, point);
     if (tool.hold) {
@@ -519,8 +579,9 @@ export class EditorFacade {
     // Already applied (and redrawn) live: record it without executing it again.
     this.history.record(result.command);
     this.store.touchMap();
-    this.autoSave.markChanged(result.change.terrainTiles, result.change.metadata);
-    this.climate.invalidate();
+    this.autoSave.markChanged(result.change);
+    // The climate reads the altitude, not the drawing (until the conversion, step D6).
+    if (result.change.terrainTiles.length > 0) this.climate.invalidate();
     this.historyRevision.update((r) => r + 1);
   }
 
@@ -692,7 +753,7 @@ export class EditorFacade {
   private afterHistoryOp(change: MapChange | null): void {
     if (!change) return;
     this.store.applyChange(change);
-    this.autoSave.markChanged(change.terrainTiles, change.metadata);
+    this.autoSave.markChanged(change);
     if (change.terrainTiles.length > 0 || change.hydrology) this.climate.invalidate();
     if (change.settings) {
       this.climate.invalidate(0);
@@ -716,7 +777,19 @@ export class EditorFacade {
 
   private toolContext(): ToolContext | null {
     const map = this.store.map();
-    return map ? { map, markTerrainDirty: (rect) => this.store.markTerrainDirty(rect) } : null;
+    return map
+      ? { map, markTerrainDirty: (rect) => this.store.markTerrainDirty(rect), markDrawingDirty: (rect) => this.store.markDrawingDirty(rect) }
+      : null;
+  }
+
+  private toolFor(id: Exclude<ToolId | DrawToolId, 'pan'>): EditorTool {
+    return this.workspaceState() === 'draw' && id in this.drawTools
+      ? this.drawTools[id as Exclude<DrawToolId, 'pan'>]
+      : this.tools[id as Exclude<ToolId, 'pan'>];
+  }
+
+  private reliefTool(label: string, relief: ReliefClass): EditorTool {
+    return new DrawingBrushTool(label, { kind: 'relief', relief }, () => this.drawingBrushState());
   }
 
   private async openLoaded(map: WorldMap): Promise<void> {

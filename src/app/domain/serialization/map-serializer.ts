@@ -2,12 +2,13 @@ import { parseFeatures } from './feature-codec';
 import { MapFeature } from '../features/map-feature';
 import { BEYOND_EDGE_VALUES, BeyondEdge, MapSettings, validateMapSettings } from '../map/map-settings';
 import { CURRENT_FORMAT_VERSION, WorldMap } from '../map/world-map';
-import { DEFAULT_TILE_SIZE } from '../terrain/tiled-grid';
+import { DEFAULT_TILE_SIZE, Int16TiledGrid } from '../terrain/tiled-grid';
 import { int16GridFromBytes, int16GridToBytes } from './grid-codec';
 import { isRecord, MapFormatError, RawMapDocument } from './map-document';
 import { Migration, MIGRATIONS, migrateToCurrent } from './migrations';
 
 export const BASE_ALTITUDE_BLOCK = 'baseAltitudeM';
+export const DRAWING_BLOCK = 'drawing';
 
 export interface GridDescriptor {
   readonly block: string;
@@ -30,6 +31,7 @@ export interface MapHeader {
 
 export function mapToHeader(map: WorldMap): MapHeader {
   const grid = map.terrain.baseAltitudeM;
+  const descriptor = (block: string): GridDescriptor => ({ block, type: 'int16', widthCells: grid.widthCells, heightCells: grid.heightCells });
   return {
     formatVersion: CURRENT_FORMAT_VERSION,
     id: map.id,
@@ -37,7 +39,7 @@ export function mapToHeader(map: WorldMap): MapHeader {
     settings: map.settings,
     createdAt: map.createdAt,
     updatedAt: map.updatedAt,
-    grids: [{ block: BASE_ALTITUDE_BLOCK, type: 'int16', widthCells: grid.widthCells, heightCells: grid.heightCells }],
+    grids: [descriptor(BASE_ALTITUDE_BLOCK), descriptor(DRAWING_BLOCK)],
     features: map.features,
   };
 }
@@ -45,7 +47,10 @@ export function mapToHeader(map: WorldMap): MapHeader {
 export function mapToDocument(map: WorldMap): RawMapDocument {
   return {
     header: { ...mapToHeader(map) },
-    blocks: new Map([[BASE_ALTITUDE_BLOCK, int16GridToBytes(map.terrain.baseAltitudeM)]]),
+    blocks: new Map([
+      [BASE_ALTITUDE_BLOCK, int16GridToBytes(map.terrain.baseAltitudeM)],
+      [DRAWING_BLOCK, int16GridToBytes(map.terrain.drawing)],
+    ]),
   };
 }
 
@@ -57,22 +62,31 @@ export function mapFromDocument(
 ): WorldMap {
   const migrated = migrateToCurrent(document, migrations);
   const header = parseHeader(migrated.header);
-  const baseGrid = header.grids.find((g) => g.block === BASE_ALTITUDE_BLOCK);
-  if (!baseGrid) throw new MapFormatError('Grille d’altitude absente.');
-  const bytes = migrated.blocks.get(BASE_ALTITUDE_BLOCK);
-  if (!bytes || bytes.byteLength !== baseGrid.widthCells * baseGrid.heightCells * 2) {
-    throw new MapFormatError('Grille d’altitude tronquée ou de taille incohérente.');
+  const baseGrid = readGrid(header, migrated, BASE_ALTITUDE_BLOCK, 'd’altitude', tileSize);
+  const drawing = readGrid(header, migrated, DRAWING_BLOCK, 'du dessin', tileSize);
+  if (drawing.widthCells !== baseGrid.widthCells || drawing.heightCells !== baseGrid.heightCells) {
+    throw new MapFormatError('Le dessin et l’altitude n’ont pas la même taille.');
   }
   return {
     id: header.id,
     name: header.name,
     formatVersion: CURRENT_FORMAT_VERSION,
     settings: header.settings,
-    terrain: { baseAltitudeM: int16GridFromBytes(bytes, baseGrid.widthCells, baseGrid.heightCells, tileSize) },
+    terrain: { baseAltitudeM: baseGrid, drawing },
     features: [...header.features],
     createdAt: header.createdAt,
     updatedAt: header.updatedAt,
   };
+}
+
+function readGrid(header: MapHeader, document: RawMapDocument, block: string, what: string, tileSize: number): Int16TiledGrid {
+  const descriptor = header.grids.find((g) => g.block === block);
+  if (!descriptor) throw new MapFormatError(`Grille ${what} absente.`);
+  const bytes = document.blocks.get(block);
+  if (!bytes || bytes.byteLength !== descriptor.widthCells * descriptor.heightCells * 2) {
+    throw new MapFormatError(`Grille ${what} tronquée ou de taille incohérente.`);
+  }
+  return int16GridFromBytes(bytes, descriptor.widthCells, descriptor.heightCells, tileSize);
 }
 
 // --- Validation (type guards: from `unknown` to trusted types) ---
