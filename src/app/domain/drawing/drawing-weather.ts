@@ -3,6 +3,7 @@ import { LAPSE_RATE_C_PER_M } from '../climate/temperature';
 import {
   AirStreamline,
   AIR_MEMORY_KM,
+  ALOFT_DEFLECTION,
   CALM_MS,
   deflect,
   DrawingAirField,
@@ -83,8 +84,6 @@ export const WINTER_ANOMALY_SWING = 0.5;
 const CONTINENTAL_RADIUS_KM = 250;
 /** Bare land (grass, fields) gives back a little water too. */
 const LAND_MOISTENING_KM = 3000;
-/** The moist air is steered by the relief like warm air at this temperature (°C). */
-const MOIST_AIR_C = 30;
 /**
  * Share of the water condensed over a slope that falls there (the rest stays
  * as cloud and evaporates downwind). Same idea as the climate model's
@@ -207,7 +206,7 @@ export function drawingWeather(field: DrawingAirField): DrawingWeather {
       const cx = (x + 0.5) * km;
       const cy = (y + 0.5) * km;
       const base = prevailingAt(field, cx, cy);
-      if (base.speed >= CALM_MS) [moistX[i], moistY[i]] = deflect(field, cx, cy, base.dx, base.dy, MOIST_AIR_C);
+      if (base.speed >= CALM_MS) [moistX[i], moistY[i]] = deflect(field, cx, cy, base.dx, base.dy, 0, ALOFT_DEFLECTION);
     }
   }
   const water = new Float32Array(n);

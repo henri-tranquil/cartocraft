@@ -74,15 +74,17 @@ describe('drawing winds', () => {
     expect(line.tempC[line.tempC.length - 1]).toBeGreaterThan(local + 0.3);
   });
 
-  it('turn cold air along a mountain range, while warm air gets over it', () => {
+  it('turn both cold and warm air along a mountain range, warm air less sharply', () => {
     // A high range across the westerlies' path, north–south at x 450–520.
     const wall = grid((x) => (x >= 450 && x < 520 ? HIGH : PLAIN));
-    const crosses = (top: number, bottom: number) => {
-      const line = traceStreamline(drawingAirField(wall, 1, settings(top, bottom)), 200, 500);
-      return line !== null && last(line, 0) > 560;
+    const line = (top: number, bottom: number) => traceStreamline(drawingAirField(wall, 1, settings(top, bottom)), 200, 500);
+    const furthest = (l: AirStreamline | null) => {
+      let x = 0;
+      for (let i = 0; l && i < l.pointsKm.length; i += 2) x = Math.max(x, l.pointsKm[i]);
+      return x;
     };
-    expect(crosses(61, 47)).toBe(false); // ~54°N: cold air
-    expect(crosses(38, 32)).toBe(true); // ~35°N: warm air
+    expect(furthest(line(61, 47))).toBeLessThan(560); // ~54°N: cold air stopped
+    expect(furthest(line(38, 32))).toBeLessThan(560); // ~35°N: warm air turned too
   });
 
   it('pick up moisture over the sea and forests, not over bare land, and warm air holds more', () => {

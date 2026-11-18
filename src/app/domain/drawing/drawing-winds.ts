@@ -291,11 +291,22 @@ export function barrierAt(field: DrawingAirField, xKm: number, yKm: number): num
   return sample(field, field.barrier, xKm, yKm);
 }
 
-/** Blocking by the relief ahead: ramps from `from` to `to` (barrier height), up to `max`; cold and warm air. */
+/**
+ * Blocking by the relief ahead: ramps from `from` to `to` (barrier height), up to `max`; cold and warm air.
+ * Warm air is turned too (a choice for Henri's world, stronger than on Earth, where warm air mostly
+ * climbs over): partly by the mid mountains, fully by a high range. Cold air is stopped sooner (from
+ * the hills).
+ */
 const DEFLECTION = {
   cold: { from: 0.2, to: 0.55, max: 1 },
-  warm: { from: 0.5, to: 1, max: 0.5 },
+  warm: { from: 0.35, to: 0.9, max: 1 },
 } as const;
+/**
+ * The moisture is carried higher up than the winds near the ground: it still climbs the ranges (half
+ * turned at most, by the high ones), so windward slopes get their rain and the lee its rain shadow.
+ */
+export const ALOFT_DEFLECTION = { from: 0.5, to: 1, max: 0.5 } as const;
+interface DeflectionRule { readonly from: number; readonly to: number; readonly max: number }
 /** Air temperatures (°C) taken as fully "cold" and fully "warm" for the blocking. */
 const COLD_AIR_C = 0;
 const WARM_AIR_C = 20;
@@ -417,13 +428,13 @@ export function traceStreamline(field: DrawingAirField, startX: number, startY: 
 }
 
 /** Removes the uphill part of the direction where the relief ahead rises: more for cold air than for warm air. */
-export function deflect(field: DrawingAirField, x: number, y: number, dx: number, dy: number, tempC: number): [number, number] {
+export function deflect(field: DrawingAirField, x: number, y: number, dx: number, dy: number, tempC: number, rule: DeflectionRule | null = null): [number, number] {
   const ax = x + dx * LOOK_AHEAD_KM;
   const ay = y + dy * LOOK_AHEAD_KM;
   const w = smoothstep(COLD_AIR_C, WARM_AIR_C, tempC);
-  const from = lerp(DEFLECTION.cold.from, DEFLECTION.warm.from, w);
-  const to = lerp(DEFLECTION.cold.to, DEFLECTION.warm.to, w);
-  const max = lerp(DEFLECTION.cold.max, DEFLECTION.warm.max, w);
+  const from = rule ? rule.from : lerp(DEFLECTION.cold.from, DEFLECTION.warm.from, w);
+  const to = rule ? rule.to : lerp(DEFLECTION.cold.to, DEFLECTION.warm.to, w);
+  const max = rule ? rule.max : lerp(DEFLECTION.cold.max, DEFLECTION.warm.max, w);
   const block = max * smoothstep(from, to, barrierAt(field, ax, ay));
   if (block <= 0) return [dx, dy];
   const e = field.cellKm;
