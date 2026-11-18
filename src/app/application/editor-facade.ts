@@ -20,6 +20,9 @@ import {
 } from '../domain/features/map-feature';
 import { poleOfInaccessibility, ringArea, translateRing } from '../domain/features/polygon';
 import { findRiverPoint } from '../domain/hydrology/rivers';
+import { nearestDrawnRiverPoint } from '../domain/drawing/drawn-river';
+import { VolcanoKind } from '../domain/drawing/drawn-volcano';
+import { isLandCode } from '../domain/drawing/drawing-cell';
 import { MapFactory } from '../domain/map/map-factory';
 import { MapSummary } from '../domain/map/map-repository';
 import { BeyondEdge, BeyondEdges, gridSizeCells, MapSettings, validateMapSettings } from '../domain/map/map-settings';
@@ -45,6 +48,7 @@ import {
 } from './tools/terrain-brush-tools';
 import { DrawingBrushOptions, DrawingBrushTool } from './tools/drawing-brush-tool';
 import { RiverDrawTool, RiverEraseTool } from './tools/river-tools';
+import { VolcanoTool } from './tools/volcano-tool';
 import { RiverSnap } from '../domain/drawing/drawn-river';
 import { checkDrawing, DrawingWarning } from '../domain/drawing/drawing-checks';
 import { ForestKind, ReliefClass } from '../domain/drawing/drawing-cell';
@@ -70,11 +74,13 @@ export type ToolId = 'pan' | 'raise' | 'lower' | 'smooth';
 export type Workspace = 'draw' | 'world';
 
 /** Tools of the Draw step. 'pan' moves the map. */
-export type DrawToolId = 'pan' | 'land' | 'sea' | ReliefClass | ForestToolId | 'river' | 'riverErase';
+export type DrawToolId = 'pan' | 'land' | 'sea' | ReliefClass | 'volcano' | ForestToolId | 'lake' | 'river' | 'riverErase' | 'names';
+/** Draw tools that edit the drawing (the others move the map, or place names). */
+type DrawingEditToolId = Exclude<DrawToolId, 'pan' | 'names'>;
 /** Forest brushes; `clearing` removes the trees. */
 export type ForestToolId = Exclude<ForestKind, 'none'> | 'clearing';
 
-export const DRAWING_BRUSH_LIMITS = { minRadiusKm: 1, maxRadiusKm: 300 } as const;
+export const DRAWING_BRUSH_LIMITS = { minRadiusKm: 0.5, maxRadiusKm: 300 } as const;
 
 export const TOOL_LABELS: Record<ToolId, string> = {
   pan: 'Déplacer',
@@ -136,6 +142,8 @@ export class EditorFacade {
   );
   /** The river being traced (km), shown raw until the pointer is released. */
   private readonly riverPreviewState = signal<readonly number[] | null>(null);
+  /** Kind of the next volcano placed (and given to a volcano clicked). */
+  private readonly volcanoKindState = signal<VolcanoKind>('erupting');
   private readonly drawingBrushState = signal<DrawingBrushOptions>({ radiusKm: 30, roughness: 0.6 });
   /** False while a non-editing panel (maps, climate) is shown: the map can only be panned. */
   private readonly editingEnabledState = signal(true);
@@ -153,13 +161,18 @@ export class EditorFacade {
     smooth: new SmoothTerrainTool(() => this.brushState()),
   };
   /** Tool of the gesture in progress (pointer down), if any. */
-  private readonly drawTools: Record<Exclude<DrawToolId, 'pan'>, EditorTool> = {
+  private readonly drawTools: Record<DrawingEditToolId, EditorTool> = {
     land: new DrawingBrushTool('Peindre la terre', { kind: 'land' }, () => this.drawingBrushState()),
     sea: new DrawingBrushTool('Peindre la mer', { kind: 'sea' }, () => this.drawingBrushState()),
     plain: this.reliefTool('Peindre la plaine', 'plain'),
     hills: this.reliefTool('Peindre des collines', 'hills'),
     midMountain: this.reliefTool('Peindre la moyenne montagne', 'midMountain'),
     highMountain: this.reliefTool('Peindre la haute montagne', 'highMountain'),
+    volcano: new VolcanoTool(
+      () => this.kmPerPxState(),
+      () => this.volcanoKindState(),
+    ),
+    lake: new DrawingBrushTool('Peindre un lac', { kind: 'lake' }, () => this.drawingBrushState()),
     broadleaf: this.forestTool('Planter des feuillus', 'broadleaf'),
     conifer: this.forestTool('Planter des résineux', 'conifer'),
     tropical: this.forestTool('Planter une forêt tropicale', 'tropical'),
@@ -215,6 +228,7 @@ export class EditorFacade {
   readonly brush = this.brushState.asReadonly();
   readonly workspace = this.workspaceState.asReadonly();
   readonly drawTool = this.drawToolState.asReadonly();
+  readonly volcanoKind = this.volcanoKindState.asReadonly();
   readonly drawingBrush = this.drawingBrushState.asReadonly();
   /** Editable layer of the open map (null: no map). */
   readonly mapSource = computed<MapSource | null>(() => this.store.map()?.source ?? null);
@@ -222,13 +236,14 @@ export class EditorFacade {
   readonly layerEditable = computed(() => this.mapSource() === (this.workspaceState() === 'draw' ? 'drawing' : 'world'));
   /** What a press on the map does, in either step ('pan' = move the map). */
   readonly pointerTool = computed<ToolId | DrawToolId>(() => {
+    if (this.workspaceState() === 'draw' && this.drawToolState() === 'names') return 'names';
     if (!this.layerEditable()) return 'pan';
     return this.workspaceState() === 'draw' ? this.drawToolState() : this.effectiveTool();
   });
   /** Radius of the brush circle drawn under the pointer, or null when the press moves the map. */
   readonly cursorRadiusKm = computed(() => {
     const tool = this.pointerTool();
-    if (tool === 'pan' || tool === 'river' || tool === 'riverErase') return null;
+    if (tool === 'pan' || tool === 'river' || tool === 'riverErase' || tool === 'volcano' || tool === 'names') return null;
     return this.workspaceState() === 'draw' ? this.drawingBrushState().radiusKm : this.brushState().radiusKm;
   });
 
@@ -600,6 +615,10 @@ export class EditorFacade {
     this.kmPerPxState.set(kmPerPx);
   }
 
+  setVolcanoKind(kind: VolcanoKind): void {
+    this.volcanoKindState.set(kind);
+  }
+
   selectDrawTool(id: DrawToolId): void {
     if (!this.gestureTool) this.drawToolState.set(id);
   }
@@ -621,7 +640,7 @@ export class EditorFacade {
   pointerDown(point: CellPoint): void {
     const id = this.pointerTool();
     const ctx = this.toolContext();
-    if (id === 'pan' || !ctx || this.gestureTool) return;
+    if (id === 'pan' || id === 'names' || !ctx || this.gestureTool) return;
     const tool = this.toolFor(id);
     this.gestureTool = tool;
     tool.begin(ctx, point);
@@ -672,10 +691,29 @@ export class EditorFacade {
     this.selectedFeatureIdState.set(id);
   }
 
+  /**
+   * Water at `point`: the drawn sea or lakes in the Draw step, below sea level
+   * in the World step. Names of water (seas, lakes, gulfs) only go there.
+   */
+  isWaterAt(point: CellPoint): boolean {
+    const map = this.store.map();
+    const x = Math.floor(point.x);
+    const y = Math.floor(point.y);
+    if (!map || !isInside(map.terrain.drawing, x, y)) return false;
+    return this.workspaceState() === 'draw' ? !isLandCode(getCell(map.terrain.drawing, x, y)) : getCell(map.terrain.baseAltitudeM, x, y) <= map.settings.seaLevelM;
+  }
+
+  /** Whether a click at `point` would place the current (point) template: a water name needs water. */
+  canPlaceAt(point: CellPoint): boolean {
+    const template = this.newPlaceTemplateState();
+    return template.kind !== 'label' || template.tone !== 'water' || this.isWaterAt(point);
+  }
+
   /** New place of the current template at `point`, selected so that its name can be typed right away. */
   addFeatureAt(point: CellPoint): void {
     const map = this.store.map();
     if (!map || !this.namesEditingState() || geometryOf(this.newPlaceTemplateState()) !== 'point' || !isInside(map.terrain.baseAltitudeM, Math.floor(point.x), Math.floor(point.y))) return;
+    if (!this.canPlaceAt(point)) return;
     const km = map.settings.baseCellKm;
     const feature = createFeature(this.newPlaceTemplateState(), crypto.randomUUID(), '', round2(point.x * km), round2(point.y * km));
     this.execute(new FeatureEditCommand('Ajouter un lieu', null, feature));
@@ -697,6 +735,8 @@ export class EditorFacade {
     const outlineKm = outlineCells.map((v) => round2(v * km));
     if (ringArea(outlineKm) < MIN_ZONE_AREA_CELLS * km * km) return;
     const pole = poleOfInaccessibility(outlineKm, km / 4);
+    // A gulf or a bay: its name sits on water.
+    if (template.kind === 'region' && template.tone === 'water' && !this.isWaterAt({ x: pole.x / km, y: pole.y / km })) return;
     const feature = createFeature(template, crypto.randomUUID(), '', round2(pole.x), round2(pole.y), outlineKm);
     this.execute(new FeatureEditCommand('Dessiner une zone', null, feature));
     this.selectedFeatureIdState.set(feature.id);
@@ -734,8 +774,17 @@ export class EditorFacade {
     this.selectedFeatureIdState.set(feature.id);
   }
 
-  /** Cell centre of the river point nearest to `point`, or null. */
+  /**
+   * Point of the river nearest to `point` (cells), or null. Draw step: the
+   * drawn rivers; World step: the computed ones (cell centre of the point).
+   */
   private riverAnchor(point: CellPoint, radiusCells: number): CellPoint | null {
+    const map = this.store.map();
+    if (map && this.workspaceState() === 'draw') {
+      const km = map.settings.baseCellKm;
+      const hit = nearestDrawnRiverPoint(map.rivers, point.x * km, point.y * km, radiusCells * km);
+      return hit ? { x: hit.xKm / km, y: hit.yKm / km } : null;
+    }
     const network = this.climate.hydrology()?.rivers;
     const hit = network ? findRiverPoint(network, point.x, point.y, radiusCells) : null;
     return network && hit ? { x: network.pointsCells[2 * hit.point], y: network.pointsCells[2 * hit.point + 1] } : null;
@@ -765,6 +814,8 @@ export class EditorFacade {
   moveFeature(id: string, xKm: number, yKm: number, riverRadiusCells = 0): void {
     const map = this.store.map();
     const feature = this.features().find((f) => f.id === id);
+    // A water name cannot be dragged onto land: it stays where it was.
+    if (map && feature?.kind === 'label' && feature.tone === 'water' && !this.isWaterAt({ x: xKm / map.settings.baseCellKm, y: yKm / map.settings.baseCellKm })) return;
     if (map && feature?.kind === 'river') {
       const km = map.settings.baseCellKm;
       const anchor = this.riverAnchor({ x: xKm / km, y: yKm / km }, Math.max(1, riverRadiusCells));
@@ -877,7 +928,7 @@ export class EditorFacade {
   /** A drawing edit (tiles or rivers) on a drawing map: its world is out of date. */
   private noteDrawingChange(change: MapChange): void {
     const map = this.store.map();
-    if (map?.source !== 'drawing' || ((change.drawingTiles?.length ?? 0) === 0 && !change.rivers)) return;
+    if (map?.source !== 'drawing' || ((change.drawingTiles?.length ?? 0) === 0 && !change.rivers && !change.volcanoes)) return;
     this.drawingEdits++;
     map.worldStale = true;
   }
@@ -903,7 +954,7 @@ export class EditorFacade {
 
   private toolFor(id: Exclude<ToolId | DrawToolId, 'pan'>): EditorTool {
     return this.workspaceState() === 'draw' && id in this.drawTools
-      ? this.drawTools[id as Exclude<DrawToolId, 'pan'>]
+      ? this.drawTools[id as DrawingEditToolId]
       : this.tools[id as Exclude<ToolId, 'pan'>];
   }
 

@@ -1,9 +1,11 @@
 import { WorldMap } from '../../domain/map/world-map';
 import { CellRect } from '../../domain/terrain/tiled-grid';
 import { cellToScreen, screenToCell, Viewport } from '../viewport';
-import { CoveragePyramid, FOREST_VALUE, RELIEF_VALUE } from './coverage-pyramid';
+import { CoveragePyramid, FOREST_VALUE, LAKE_VALUE, RELIEF_VALUE } from './coverage-pyramid';
 import { DrawnRiver } from '../../domain/drawing/drawn-river';
-import { drawDrawingGlyphs, glyphZoom, RELIEF_GLYPH_REACH_PX } from './drawing-glyphs';
+import { drawDrawingGlyphs, glyphZoom, RELIEF_GLYPH_REACH_PX, VOLCANO_GLYPH, VolcanoGlyphSpot } from './drawing-glyphs';
+import { DrawnVolcano } from '../../domain/drawing/drawn-volcano';
+import { snowCapChance } from '../../domain/drawing/drawing-climate';
 import { buildRiverShapes, inRiver, RiverShapes, waterCoverage } from './river-raster';
 import { zonalRows, ZonalRows } from '../../domain/drawing/drawing-climate';
 import { MapSettings } from '../../domain/map/map-settings';
@@ -40,6 +42,7 @@ export class DrawingView {
   private readonly pyramid: CoveragePyramid;
   private readonly reliefPyramid: CoveragePyramid;
   private readonly forestPyramid: CoveragePyramid;
+  private readonly lakePyramid: CoveragePyramid;
   /** Device px per CSS px the cached tiles were drawn for (glyph sizes depend on it). */
   private pxScale = 1;
   private readonly cache = new Map<string, CachedTile>();
@@ -49,6 +52,8 @@ export class DrawingView {
   private readonly riverShapes = new Map<number, RiverShapes>();
   /** The rivers the cached tiles were drawn with (items are immutable: identity tells a change). */
   private drawnRivers: readonly DrawnRiver[] = [];
+  /** The volcanoes the cached tiles were drawn with (same identity check). */
+  private drawnVolcanoes: readonly DrawnVolcano[] = [];
   /** Ground colour by latitude, and the settings it was computed for. */
   private zonal: ZonalRows;
   private zonalKey: string;
@@ -57,6 +62,7 @@ export class DrawingView {
     this.pyramid = new CoveragePyramid(map.terrain.drawing);
     this.reliefPyramid = new CoveragePyramid(map.terrain.drawing, RELIEF_VALUE);
     this.forestPyramid = new CoveragePyramid(map.terrain.drawing, FOREST_VALUE);
+    this.lakePyramid = new CoveragePyramid(map.terrain.drawing, LAKE_VALUE);
     this.zonalKey = zonalKeyOf(map.settings);
     this.zonal = zonalRows(map.settings, map.terrain.drawing.heightCells);
   }
@@ -78,6 +84,7 @@ export class DrawingView {
       this.pyramid.update(rect);
       this.reliefPyramid.update(rect);
       this.forestPyramid.update(rect);
+      this.lakePyramid.update(rect);
       for (const tile of this.cache.values()) {
         const reach = influenceCells(tile.key.level, this.pyramid.maxLevel, RELIEF_GLYPH_REACH_PX * this.glyphPxScale(tile.key.level));
         const size = tileCells(tile.key.level);
@@ -98,6 +105,7 @@ export class DrawingView {
       this.riverShapes.clear();
     }
     this.syncRivers();
+    this.syncVolcanoes();
     this.syncZonal();
     const level = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, Math.ceil(Math.log2(vp.pixelsPerCell * devicePixelRatio))));
     const visible = this.visibleTiles(vp, level);
@@ -155,7 +163,7 @@ export class DrawingView {
     const shapes = this.shapesAt(key.level);
     const water = waterCoverage(shapes, key.tx * DRAWING_TILE_PX - 1, key.ty * DRAWING_TILE_PX - 1, DRAWING_TILE_PX + 2);
     renderDrawingTile(
-      { pyramid: this.pyramid, reliefPyramid: this.reliefPyramid, forestPyramid: this.forestPyramid, zonal: this.zonal, widthCells: grid.widthCells, heightCells: grid.heightCells, seed },
+      { pyramid: this.pyramid, reliefPyramid: this.reliefPyramid, forestPyramid: this.forestPyramid, lakePyramid: this.lakePyramid, zonal: this.zonal, widthCells: grid.widthCells, heightCells: grid.heightCells, seed },
       key,
       this.pixels.data,
       water,
@@ -179,6 +187,7 @@ export class DrawingView {
     drawDrawingGlyphs(tctx, grid, seed, key.level, key.tx * DRAWING_TILE_PX, key.ty * DRAWING_TILE_PX, DRAWING_TILE_PX, this.glyphPxScale(key.level), (x, y) =>
       inRiver(shapes, x, y, margin),
       this.zonal.warmestC,
+      this.volcanoSpots(key),
     );
     tctx.restore();
     tile.stale = false;
@@ -232,6 +241,52 @@ export class DrawingView {
       const tx0 = tile.key.tx * size;
       const ty0 = tile.key.ty * size;
       if (rects.some((r) => r.x1 >= tx0 && r.x0 < tx0 + size && r.y1 >= ty0 && r.y0 < ty0 + size)) tile.stale = true;
+    }
+  }
+
+  /** Volcanoes whose glyph may touch this tile, in the level's px. */
+  private volcanoSpots(key: DrawingTileKey): VolcanoGlyphSpot[] {
+    const volcanoes = this.map.volcanoes;
+    if (volcanoes.length === 0) return [];
+    const pxPerKm = 2 ** key.level / this.map.settings.baseCellKm;
+    const scale = this.glyphPxScale(key.level);
+    const reachX = VOLCANO_GLYPH.w * scale;
+    const reachY = VOLCANO_GLYPH.h * 1.8 * scale; // cone, bombs and ash plume above the base
+    const x0 = key.tx * DRAWING_TILE_PX;
+    const y0 = key.ty * DRAWING_TILE_PX;
+    const spots: VolcanoGlyphSpot[] = [];
+    for (const v of volcanoes) {
+      const x = v.xKm * pxPerKm;
+      const y = v.yKm * pxPerKm;
+      if (x < x0 - reachX || x > x0 + DRAWING_TILE_PX + reachX || y < y0 || y > y0 + DRAWING_TILE_PX + reachY) continue;
+      const row = Math.max(0, Math.min(this.zonal.warmestC.length - 1, Math.floor(v.yKm / this.map.settings.baseCellKm)));
+      spots.push({ x, y, snow: snowCapChance(this.zonal.warmestC[row], 2) >= 0.5, kind: v.kind, variant: idVariant(v.id), scale: volcanoScale(pxPerKm, scale, this.pxScale) });
+    }
+    return spots;
+  }
+
+  /** Volcanoes placed, moved or erased: re-render the tiles around the old and new ones. */
+  private syncVolcanoes(): void {
+    const volcanoes = this.map.volcanoes;
+    if (volcanoes.length === this.drawnVolcanoes.length && volcanoes.every((v, i) => v === this.drawnVolcanoes[i])) return;
+    const kept = new Set(volcanoes);
+    const changed = [...this.drawnVolcanoes.filter((v) => !kept.has(v)), ...volcanoes.filter((v) => !this.drawnVolcanoes.includes(v))];
+    this.drawnVolcanoes = [...volcanoes];
+    const cellKm = this.map.settings.baseCellKm;
+    for (const tile of this.cache.values()) {
+      const size = tileCells(tile.key.level);
+      // Glyph reach in cells at this tile's level.
+      const reach = (VOLCANO_GLYPH.h * 1.8 * this.glyphPxScale(tile.key.level)) / 2 ** tile.key.level;
+      const tx0 = tile.key.tx * size;
+      const ty0 = tile.key.ty * size;
+      if (
+        changed.some((v) => {
+          const cx = v.xKm / cellKm;
+          const cy = v.yKm / cellKm;
+          return cx + reach >= tx0 && cx - reach < tx0 + size && cy + reach >= ty0 && cy - reach < ty0 + size;
+        })
+      )
+        tile.stale = true;
     }
   }
 
@@ -293,4 +348,25 @@ function id(key: DrawingTileKey): string {
 
 function zonalKeyOf(s: MapSettings): string {
   return `${s.latitudeTopDeg}|${s.latitudeBottomDeg}|${s.axialTiltDeg}|${s.globalTemperatureOffsetC}`;
+}
+
+/** A stable 0..1 number from a volcano id (FNV-1a): its shape survives moves and reloads. */
+function idVariant(id: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x01000193);
+  return ((h >>> 0) % 100000) / 100000;
+}
+
+/**
+ * Volcano size on far views: full size (like the mountain glyphs) as long as
+ * it stays under VOLCANO_MAX_KM wide on the ground; zoomed out further, it
+ * shrinks with the map, down to VOLCANO_MIN_PX (CSS px) so it never vanishes.
+ */
+const VOLCANO_MAX_KM = 45;
+const VOLCANO_MIN_PX = 16;
+function volcanoScale(levelPxPerKm: number, glyphScale: number, devicePxScale: number): number {
+  const fullPx = VOLCANO_GLYPH.w * glyphScale;
+  const groundPx = VOLCANO_MAX_KM * levelPxPerKm;
+  const minPx = VOLCANO_MIN_PX * devicePxScale;
+  return Math.min(1, Math.max(minPx, groundPx) / fullPx);
 }

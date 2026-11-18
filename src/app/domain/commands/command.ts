@@ -16,6 +16,8 @@ export interface MapChange {
   readonly hydrology?: boolean;
   /** Drawn rivers changed (part of the drawing: the world must be converted again). */
   readonly rivers?: boolean;
+  /** Drawn volcanoes changed (part of the drawing too). */
+  readonly volcanoes?: boolean;
 }
 
 export const NO_CHANGE: MapChange = { terrainTiles: [], metadata: false };

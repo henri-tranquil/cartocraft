@@ -22,6 +22,9 @@ export function tileCells(level: number): number {
 
 /** Drawing view look. Colours come from the rendered view's palette: drawing and rendering must match. */
 export const DRAWING_STYLE = {
+  /** Lake water (fresh): lighter and bluer than the open sea, paler along its shore. */
+  lakeWater: [88, 152, 176] as const,
+  lakeShore: [150, 196, 200] as const,
   /** Width of the coastal glow on screen (px), whatever the zoom. */
   glowPx: 24,
   /** Relief wash: how far a high-mountain zone shifts the parchment towards `reliefWash`. */
@@ -49,6 +52,8 @@ export interface DrawingTileContext {
   /** Mean relief class (see RELIEF_VALUE): a light ochre wash on relief zones, readable from afar. */
   readonly reliefPyramid: CoveragePyramid;
   readonly forestPyramid: CoveragePyramid;
+  /** Lake cells (fresh water); optional: without it, all water is sea. */
+  readonly lakePyramid?: CoveragePyramid;
   /** Climate guessed from the latitude (one value per cell row): the ground colour. */
   readonly zonal: ZonalRows;
   readonly widthCells: number;
@@ -131,6 +136,7 @@ export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, 
   const edges = new Float32Array(L * L);
   const reliefs = new Float32Array(L * L);
   const forests = new Float32Array(L * L);
+  const lakes = new Float32Array(L * L);
   const wets = new Float32Array(L * L);
   const colds = new Float32Array(L * L);
   const { wetnessPct, warmestC } = ctx.zonal;
@@ -144,6 +150,7 @@ export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, 
       edges[b * L + a] = pyramid.sample(edgeLevel, x, y);
       reliefs[b * L + a] = ctx.reliefPyramid.sample(reliefLevel, x, y);
       forests[b * L + a] = ctx.forestPyramid.sample(reliefLevel, x, y);
+      lakes[b * L + a] = ctx.lakePyramid ? ctx.lakePyramid.sample(landLevel, x, y) : 0;
       // Same wash as the rendered view: dry → wet by latitude, pale where summers are cold (high or far north).
       const row = Math.max(0, Math.min(heightCells - 1, Math.floor(y)));
       wets[b * L + a] = smoothstep(VINTAGE.washDryPct, VINTAGE.washWetPct, wetnessPct[row]);
@@ -163,6 +170,8 @@ export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, 
   const [relR, relG, relB] = DRAWING_STYLE.reliefWash;
   const [forR, forG, forB] = DRAWING_STYLE.forestWash;
   const [inkR, inkG, inkB] = DRAWING_STYLE.ink;
+  const [lakR, lakG, lakB] = DRAWING_STYLE.lakeWater;
+  const [lksR, lksG, lksB] = DRAWING_STYLE.lakeShore;
   for (let j = 0; j < N; j++) {
     const py = originY + j + 1;
     const y = (py + 0.5) * cellsPerPx;
@@ -224,6 +233,17 @@ export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, 
         r += (shalR - r) * t;
         g += (shalG - g) * t;
         b += (shalB - b) * t;
+        // Fresh water: a lighter, calmer blue-green, paler still along the shore.
+        const lake = smoothstep(0.2, 0.6, bilerp(lakes, k, L, fx, fy));
+        if (lake > 0) {
+          const q = 0.92 + 0.16 * stain;
+          const lr = (lakR + (lksR - lakR) * t) * q;
+          const lg = (lakG + (lksG - lakG) * t) * q;
+          const lb = (lakB + (lksB - lakB) * t) * q;
+          r += (lr - r) * lake;
+          g += (lg - g) * lake;
+          b += (lb - b) * lake;
+        }
       }
       out[o] = r + grain;
       out[o + 1] = g + grain;

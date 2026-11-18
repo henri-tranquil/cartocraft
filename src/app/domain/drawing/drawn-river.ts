@@ -1,6 +1,6 @@
 import { simplifyPolyline } from '../features/polygon';
 import { getCellClamped, Int16TiledGrid } from '../terrain/tiled-grid';
-import { isLandCode } from './drawing-cell';
+import { isLakeCode, isLandCode } from './drawing-cell';
 
 /**
  * A river traced by hand on the drawing: a polyline in km (flat array
@@ -33,7 +33,7 @@ export interface RiverStrokeContext {
 }
 
 /** Where a river ends. Only `inland` deserves a warning. */
-export type RiverEnd = 'sea' | 'river' | 'inland';
+export type RiverEnd = 'sea' | 'lake' | 'river' | 'inland';
 
 /** Two points closer than this (km) are the same place: a tributary's mouth lies ON its main river. */
 const JOIN_EPSILON_KM = 0.01;
@@ -75,10 +75,28 @@ export function planRiver(strokeKm: readonly number[], ctx: RiverStrokeContext):
     points = reversePolyline(points);
   }
 
-  let first = 0;
-  while (first < points.length / 2 && isSeaKm(ctx, points[2 * first], points[2 * first + 1])) first++;
-  if (first >= points.length / 2 - 1) return null;
-  points = points.slice(2 * first);
+  // Start where the stroke leaves the water (sea or lake), cutting the first segment at the shore:
+  // a straight stroke from the middle of a lake has no vertex on land to keep.
+  if (isSeaKm(ctx, points[0], points[1])) {
+    let start: number[] | null = null;
+    for (let i = 1; i < points.length / 2 && !start; i++) {
+      const ax = points[2 * i - 2];
+      const ay = points[2 * i - 1];
+      const bx = points[2 * i];
+      const by = points[2 * i + 1];
+      const samples = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / (ctx.cellKm / 2)));
+      for (let k = 1; k <= samples; k++) {
+        const t = k / samples;
+        const x = ax + (bx - ax) * t;
+        const y = ay + (by - ay) * t;
+        if (isSeaKm(ctx, x, y)) continue;
+        start = t < 1 ? [x, y, ...points.slice(2 * i)] : points.slice(2 * i);
+        break;
+      }
+    }
+    if (!start || start.length < 4) return null;
+    points = start;
+  }
 
   const out = [points[0], points[1]];
   let joined = false;
@@ -195,14 +213,30 @@ function trimAtFirstCrossing(river: readonly number[], other: readonly number[])
   return null;
 }
 
-/** How a river ends: in the sea (an enclosed sea painted inland counts: it is a lake), on another river, or nowhere. */
+/** How a river ends: in the sea, in a lake (painted as a lake, or a sea enclosed inland), on another river, or nowhere. */
 export function riverEnd(river: DrawnRiver, rivers: readonly DrawnRiver[], drawing: Int16TiledGrid, cellKm: number): RiverEnd {
   const p = river.pointsKm;
   const x = p[p.length - 2];
   const y = p[p.length - 1];
   const cx = Math.floor(x / cellKm);
   const cy = Math.floor(y / cellKm);
-  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (isSeaCell(drawing, cx + dx, cy + dy)) return 'sea';
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (!isSeaCell(drawing, cx + dx, cy + dy)) continue;
+      // Water around the mouth: a lake if most of its water cells are lake cells.
+      let lake = 0;
+      let water = 0;
+      for (let ey = -2; ey <= 2; ey++) {
+        for (let ex = -2; ex <= 2; ex++) {
+          const code = getCellClamped(drawing, cx + ex, cy + ey);
+          if (isLandCode(code)) continue;
+          water++;
+          if (isLakeCode(code)) lake++;
+        }
+      }
+      return 2 * lake > water ? 'lake' : 'sea';
+    }
+  }
   return joinOf(river, rivers) ? 'river' : 'inland';
 }
 
@@ -290,6 +324,25 @@ export function joinOf(river: DrawnRiver, rivers: readonly DrawnRiver[]): { rive
     if (distance < JOIN_EPSILON_KM) return { river: other, atKm };
   }
   return null;
+}
+
+/** The nearest point (km) on any drawn river within `maxKm`, and its river: where a river name anchors. */
+export function nearestDrawnRiverPoint(
+  rivers: readonly DrawnRiver[],
+  xKm: number,
+  yKm: number,
+  maxKm: number,
+): { readonly river: DrawnRiver; readonly xKm: number; readonly yKm: number } | null {
+  let best: { river: DrawnRiver; xKm: number; yKm: number } | null = null;
+  let bestD = maxKm;
+  for (const river of rivers) {
+    const near = nearestOnPolyline(river.pointsKm, xKm, yKm);
+    if (near.distance <= bestD) {
+      best = { river, xKm: near.x, yKm: near.y };
+      bestD = near.distance;
+    }
+  }
+  return best;
 }
 
 function nearestOnPolyline(p: readonly number[], x: number, y: number): { x: number; y: number; distance: number } {

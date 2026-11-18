@@ -25,7 +25,7 @@ const TEMPLATES: readonly TemplateDef[] = [
   { template: { kind: 'settlement', size: 'village' }, icon: 'village', short: 'Village', title: 'Village : visible de près' },
   { template: { kind: 'peak' }, icon: 'peak', short: 'Sommet', title: 'Sommet' },
   { template: { kind: 'label', tone: 'land' }, icon: 'land', short: 'Terre', title: 'Nom de terre : région, plaine, île, péninsule…' },
-  { template: { kind: 'label', tone: 'water' }, icon: 'water', short: 'Mer', title: 'Nom d’eau : mer, détroit, lac… (un point)' },
+  { template: { kind: 'label', tone: 'water' }, icon: 'water', short: 'Eaux', title: 'Nom d’eau : mer, lac, détroit… (un point)' },
   { template: { kind: 'region', tone: 'land' }, icon: 'zone', short: 'Zone', title: 'Zone de terre : plaine, plateau, région… Glissez pour dessiner son contour' },
   { template: { kind: 'region', tone: 'water' }, icon: 'bay', short: 'Golfe', title: 'Zone d’eau : baie, golfe, lagune… Glissez pour dessiner son contour' },
   { template: { kind: 'range' }, icon: 'range', short: 'Chaîne', title: 'Chaîne de montagnes : glissez le long de la crête, le nom suivra la ligne' },
@@ -59,7 +59,11 @@ function sameTemplate(a: FeatureTemplate, b: FeatureTemplate): boolean {
           Glissez le long de la crête pour tracer la chaîne (clic droit : déplacer la carte). Le nom suit la ligne s’il y tient.
         }
         @case ('river') {
-          Cliquez sur un fleuve pour le nommer ; glissez son nom pour le faire glisser le long du cours. Les fleuves apparaissent quand le climat est calculé.
+          @if (facade.workspace() === 'draw') {
+            Cliquez sur un fleuve dessiné pour le nommer ; glissez son nom pour le faire glisser le long du cours. Le nom n’apparaît que s’il tient le long du fleuve : zoomez pour les petits.
+          } @else {
+            Cliquez sur un fleuve pour le nommer ; glissez son nom pour le faire glisser le long du cours. Les fleuves apparaissent quand le climat est calculé.
+          }
         }
         @default {
           Cliquez sur la carte pour poser un lieu, glissez un nom pour le déplacer. Plus on zoome, plus les petits lieux apparaissent.

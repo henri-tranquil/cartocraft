@@ -42,6 +42,8 @@ export type IconName =
   | 'hills'
   | 'midMountain'
   | 'highMountain'
+  | 'volcano'
+  | 'lake'
   | 'broadleaf'
   | 'conifer'
   | 'tropical'
@@ -161,6 +163,13 @@ export type IconName =
         }
         @case ('range') {
           <path d="M2 18l4-6 3 3 4-8 4 6 2-2 3 7" />
+        }
+        @case ('volcano') {
+          <path d="M2 21l7-11h6l7 11z" /><path d="M9 10c1 1 5 1 6 0" fill="currentColor" />
+          <path d="M11 7.5c-1.6-.4-1.8-2.4-.2-2.8.2-1.6 2.6-1.8 3-.2 1.5-.2 2 1.8.6 2.4" />
+        }
+        @case ('lake') {
+          <path d="M5 13c0-4 3-6 7-6s8 2 8 6-3 6-8 6-7-2-7-6z" /><path d="M9 12c1-.8 2 .8 3 0s2-.8 3 0" />
         }
         @case ('river') {
           <path d="M4 3c3 3-2 6 1 9s6 1 7 4 0 4 2 5" />

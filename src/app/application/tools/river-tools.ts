@@ -1,4 +1,6 @@
 import { DrawnRiverEditCommand } from '../../domain/commands/drawn-river-edit-command';
+import { DrawnVolcanoEditCommand } from '../../domain/commands/drawn-volcano-edit-command';
+import { volcanoAt } from '../../domain/drawing/drawn-volcano';
 import { courseUpTo, DrawnRiver, planRiver, RiverPlan, reversePolyline, riverEnd, riverNear, RiverSnap, riverSnapAt } from '../../domain/drawing/drawn-river';
 import { RiverEdit } from '../../domain/commands/drawn-river-edit-command';
 import { simplifyPolyline } from '../../domain/features/polygon';
@@ -144,10 +146,17 @@ export class RiverEraseTool implements EditorTool {
 
   private result: ToolResult | null = null;
 
-  /** One river per gesture: the first one under the pointer. */
+  /** One element per gesture: the first volcano or river under the pointer (a volcano first: it is drawn on top). */
   private pick(ctx: ToolContext, point: CellPoint): void {
     if (this.picked) return;
     const km = ctx.map.settings.baseCellKm;
+    const volcano = volcanoAt(ctx.map.volcanoes, point.x * km, point.y * km, this.kmPerPx());
+    if (volcano) {
+      this.picked = true;
+      const command = new DrawnVolcanoEditCommand('Effacer un volcan', volcano, null);
+      this.result = { command, change: command.execute(ctx.map) };
+      return;
+    }
     const river = riverNear(ctx.map.rivers, point.x * km, point.y * km, this.kmPerPx() * PICK_PX);
     if (!river) return;
     this.picked = true;

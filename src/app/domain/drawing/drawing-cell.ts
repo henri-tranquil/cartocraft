@@ -6,8 +6,11 @@
  *   bit 0      land (1) or sea (0)
  *   bits 1–2   relief class (plaine, collines, moyenne, haute montagne)
  *   bits 3–4   forest kind (aucune, feuillus, résineux, tropicale)
+ *   bit 5      lake (fresh water inside the land; land bit clear)
  *
- * Sea cells always carry relief 0 and forest 0: painting the sea erases both.
+ * Water cells (sea, lake) always carry relief 0 and forest 0: painting water
+ * erases both. A lake is water for every reader that only asks "land?"
+ * (coast, rivers, glyphs): only the few that care tell it from the sea.
  */
 
 export const RELIEF_CLASSES = ['plain', 'hills', 'midMountain', 'highMountain'] as const;
@@ -17,6 +20,9 @@ export const FOREST_KINDS = ['none', 'broadleaf', 'conifer', 'tropical'] as cons
 export type ForestKind = (typeof FOREST_KINDS)[number];
 
 const LAND_BIT = 1;
+const LAKE_BIT = 1 << 5;
+/** A lake cell (no land, no relief, no forest). */
+export const LAKE_CELL = LAKE_BIT;
 const RELIEF_SHIFT = 1;
 const FOREST_SHIFT = 3;
 const TWO_BITS = 0b11;
@@ -27,6 +33,10 @@ export interface DrawingCell {
   readonly land: boolean;
   readonly relief: ReliefClass;
   readonly forest: ForestKind;
+}
+
+export function isLakeCode(code: number): boolean {
+  return (code & LAKE_BIT) !== 0;
 }
 
 export function isLandCode(code: number): boolean {
@@ -56,15 +66,19 @@ export function encodeDrawingCell(cell: DrawingCell): number {
 export type DrawingPaint =
   | { readonly kind: 'land' }
   | { readonly kind: 'sea' }
+  /** Lakes are painted over land only (and over lakes): painting one in the sea does nothing. */
+  | { readonly kind: 'lake' }
   | { readonly kind: 'relief'; readonly relief: ReliefClass }
   | { readonly kind: 'forest'; readonly forest: ForestKind };
 
 export function applyPaint(code: number, paint: DrawingPaint): number {
   switch (paint.kind) {
     case 'land':
-      return code | LAND_BIT;
+      return isLakeCode(code) ? LAND_BIT : code | LAND_BIT;
     case 'sea':
       return SEA_CELL;
+    case 'lake':
+      return isLandCode(code) || isLakeCode(code) ? LAKE_CELL : code;
     case 'relief':
       if (!isLandCode(code)) return code;
       return (code & ~(TWO_BITS << RELIEF_SHIFT)) | (RELIEF_CLASSES.indexOf(paint.relief) << RELIEF_SHIFT);

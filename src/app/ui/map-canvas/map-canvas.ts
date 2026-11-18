@@ -1,3 +1,4 @@
+import { DrawnRiver, riverFlowsKm } from '../../domain/drawing/drawn-river';
 import { drawRiverMagnet, drawRiverPreview } from '../../rendering/drawing/drawn-river-layer';
 import {
   afterNextRender,
@@ -145,7 +146,13 @@ export class MapCanvas {
     const pin = this.hoveredPin();
     if (pin === 'ruler') return this.pinDragging() ? 'grabbing' : 'grab';
     if (pin !== null) return 'ns-resize';
-    if (this.facade.namesEditing()) return this.hoveringLabel() ? 'move' : geometryOf(this.facade.newPlaceTemplate()) === 'point' ? 'copy' : 'crosshair';
+    if (this.facade.namesEditing()) {
+      if (this.hoveringLabel()) return 'move';
+      if (geometryOf(this.facade.newPlaceTemplate()) !== 'point') return 'crosshair';
+      // A water name over land: show that the click will not place it.
+      const hover = this.hover();
+      return hover && !this.facade.canPlaceAt(hover) ? 'not-allowed' : 'copy';
+    }
     return this.facade.pointerTool() === 'pan' ? 'grab' : 'crosshair';
   });
 
@@ -525,15 +532,27 @@ export class MapCanvas {
     }
   }
 
+  /** Upstream lengths of the drawn rivers, recomputed only when a river changes (items are immutable). */
+  private flowsCache: { rivers: readonly DrawnRiver[]; flows: Map<string, Float64Array> } = { rivers: [], flows: new Map() };
+  private drawnRiverFlows(rivers: readonly DrawnRiver[]): Map<string, Float64Array> {
+    const cached = this.flowsCache;
+    if (cached.rivers.length !== rivers.length || rivers.some((r, i) => r !== cached.rivers[i])) {
+      this.flowsCache = { rivers: [...rivers], flows: riverFlowsKm(rivers) };
+    }
+    return this.flowsCache.flows;
+  }
+
   private drawNames(ctx: CanvasRenderingContext2D, vp: Viewport, map: WorldMap): void {
     const selectedId = this.facade.selectedFeatureId();
     if (this.facade.namesEditing()) drawZoneOutlines(ctx, vp, map.settings.baseCellKm, this.facade.features(), selectedId);
     const hydrology = this.facade.renderHydrology();
     const pxPerKm = vp.pixelsPerCell / map.settings.baseCellKm;
+    const draw = this.facade.workspace() === 'draw';
     this.placedLabels = layoutLabels(this.facade.features(), vp, map.settings.baseCellKm, canvasTextMeasure(ctx), {
       selectedId,
       dragged: this.draggedFeature(),
-      rivers: hydrology ? { network: hydrology.rivers, minDischargeM3s: visibleDischargeM3s(EDIT_RIVER_STYLE, pxPerKm) } : null,
+      rivers: !draw && hydrology ? { network: hydrology.rivers, minDischargeM3s: visibleDischargeM3s(EDIT_RIVER_STYLE, pxPerKm) } : null,
+      drawnRivers: draw ? { rivers: map.rivers, flowsKm: this.drawnRiverFlows(map.rivers) } : null,
     });
     drawLabels(ctx, this.placedLabels, selectedId);
     const lasso = this.lasso();

@@ -1,5 +1,6 @@
 import { parseFeatures } from './feature-codec';
 import { DrawnRiver } from '../drawing/drawn-river';
+import { DrawnVolcano, VOLCANO_KINDS } from '../drawing/drawn-volcano';
 import { MapFeature } from '../features/map-feature';
 import { BEYOND_EDGE_VALUES, BeyondEdge, MapSettings, validateMapSettings } from '../map/map-settings';
 import { CURRENT_FORMAT_VERSION, MAP_SOURCES, MapSource, WorldMap } from '../map/world-map';
@@ -33,6 +34,8 @@ export interface MapHeader {
   readonly features: readonly MapFeature[];
   /** Drawn rivers. Added inside format 4: absent from older headers, read as none. */
   readonly rivers: readonly DrawnRiver[];
+  /** Drawn volcanoes. Added inside format 5: absent = none. */
+  readonly volcanoes: readonly DrawnVolcano[];
 }
 
 export function mapToHeader(map: WorldMap): MapHeader {
@@ -50,6 +53,7 @@ export function mapToHeader(map: WorldMap): MapHeader {
     grids: [descriptor(BASE_ALTITUDE_BLOCK), descriptor(DRAWING_BLOCK)],
     features: map.features,
     rivers: map.rivers,
+    volcanoes: map.volcanoes,
   };
 }
 
@@ -86,6 +90,7 @@ export function mapFromDocument(
     terrain: { baseAltitudeM: baseGrid, drawing },
     features: [...header.features],
     rivers: [...header.rivers],
+    volcanoes: [...header.volcanoes],
     createdAt: header.createdAt,
     updatedAt: header.updatedAt,
   };
@@ -181,6 +186,7 @@ function parseHeader(header: Readonly<Record<string, unknown>>): MapHeader {
     grids: grids.map(parseGrid),
     features: parseFeatures(header['features']),
     rivers: parseRivers(header['rivers']),
+    volcanoes: parseVolcanoes(header['volcanoes']),
   };
 }
 
@@ -188,6 +194,24 @@ function parseSource(value: unknown): MapSource {
   const source = MAP_SOURCES.find((s) => s === value);
   if (!source) throw new MapFormatError('Type de carte (dessin ou monde) absent ou invalide.');
   return source;
+}
+
+function parseVolcanoes(value: unknown): DrawnVolcano[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new MapFormatError('Liste des volcans invalide.');
+  const ids = new Set<string>();
+  return value.map((item: unknown, index) => {
+    const invalid = new MapFormatError(`Volcan n° ${index + 1} invalide.`);
+    if (typeof item !== 'object' || item === null) throw invalid;
+    const { id, xKm, yKm, kind } = item as Record<string, unknown>;
+    if (typeof id !== 'string' || id === '' || ids.has(id)) throw invalid;
+    if (typeof xKm !== 'number' || typeof yKm !== 'number' || !Number.isFinite(xKm) || !Number.isFinite(yKm)) throw invalid;
+    // Kind added after the first volcanoes: absent = erupting.
+    const volcanoKind = kind === undefined ? 'erupting' : VOLCANO_KINDS.find((k) => k === kind);
+    if (!volcanoKind) throw invalid;
+    ids.add(id);
+    return { id, xKm, yKm, kind: volcanoKind };
+  });
 }
 
 function parseRivers(value: unknown): DrawnRiver[] {

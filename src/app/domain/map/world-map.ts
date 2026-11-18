@@ -1,4 +1,5 @@
 import { DrawnRiver } from '../drawing/drawn-river';
+import { DrawnVolcano } from '../drawing/drawn-volcano';
 import { MapFeature } from '../features/map-feature';
 import { Int16TiledGrid } from '../terrain/tiled-grid';
 import { MapSettings } from './map-settings';
@@ -58,6 +59,8 @@ export interface WorldMap {
   readonly features: MapFeature[];
   /** Rivers traced on the drawing (source → mouth), edited by DrawnRiverEditCommand. */
   readonly rivers: DrawnRiver[];
+  /** Volcanoes placed on the drawing, edited by DrawnVolcanoEditCommand. */
+  readonly volcanoes: DrawnVolcano[];
   readonly createdAt: string;
   updatedAt: string;
 }

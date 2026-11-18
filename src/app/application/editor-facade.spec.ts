@@ -245,6 +245,68 @@ describe('EditorFacade', () => {
     expect(facade.pointerTool()).toBe('pan');
   });
 
+  it('places, moves and erases a volcano on land only; the names tool works on a world map too', async () => {
+    await facade.createBlankMap(SMALL_MAP, 'A');
+    facade.setDrawingBrush({ radiusKm: 20, roughness: 0 });
+    facade.selectDrawTool('volcano');
+    facade.pointerDown({ x: 100, y: 100 }); // sea: nothing
+    facade.pointerUp();
+    expect(store.map()!.volcanoes).toEqual([]);
+    facade.selectDrawTool('land');
+    facade.pointerDown({ x: 100, y: 100 });
+    facade.pointerUp();
+    facade.selectDrawTool('volcano');
+    facade.pointerDown({ x: 100, y: 100 });
+    facade.pointerUp();
+    const map = store.map()!;
+    expect(map.volcanoes).toHaveLength(1);
+    expect(facade.undoLabel()).toBe('Poser un volcan');
+    facade.setKmPerPx(1);
+    facade.pointerDown({ x: 100, y: 100 });
+    facade.pointerMove({ x: 105, y: 102 });
+    facade.pointerUp();
+    expect(map.volcanoes[0].xKm / map.settings.baseCellKm).toBeCloseTo(105);
+    expect(facade.undoLabel()).toBe('Déplacer un volcan');
+    expect(map.volcanoes[0].kind).toBe('erupting');
+    facade.setVolcanoKind('smoking');
+    facade.pointerDown({ x: 105, y: 102 });
+    facade.pointerUp();
+    expect(map.volcanoes[0].kind).toBe('smoking');
+    expect(facade.undoLabel()).toBe('Changer un volcan');
+    facade.selectDrawTool('riverErase');
+    facade.pointerDown({ x: 105, y: 102 });
+    facade.pointerUp();
+    expect(map.volcanoes).toEqual([]);
+    facade.undo();
+    expect(map.volcanoes).toHaveLength(1);
+
+    await facade.createBlankMap(SMALL_MAP, 'B', 'world');
+    facade.setWorkspace('draw');
+    facade.selectDrawTool('names');
+    expect(facade.pointerTool()).toBe('names');
+  });
+
+  it('places a water name only on water (drawn sea or lake), and keeps it off land when dragged', async () => {
+    await facade.createBlankMap(SMALL_MAP, 'A');
+    facade.setDrawingBrush({ radiusKm: 20, roughness: 0 });
+    facade.selectDrawTool('land');
+    facade.pointerDown({ x: 100, y: 100 });
+    facade.pointerUp();
+    facade.setNamesEditing(true);
+    facade.setNewPlaceTemplate({ kind: 'label', tone: 'water' });
+    expect(facade.canPlaceAt({ x: 100, y: 100 })).toBe(false);
+    facade.addFeatureAt({ x: 100, y: 100 });
+    expect(facade.features()).toHaveLength(0);
+    facade.addFeatureAt({ x: 10, y: 10 });
+    expect(facade.features()).toHaveLength(1);
+    const id = facade.features()[0].id;
+    const km = store.map()!.settings.baseCellKm;
+    facade.moveFeature(id, 100 * km, 100 * km);
+    expect(facade.features()[0].xKm).toBeCloseTo(10 * km);
+    facade.setNewPlaceTemplate({ kind: 'label', tone: 'land' });
+    expect(facade.canPlaceAt({ x: 10, y: 10 })).toBe(true);
+  });
+
   it('does nothing with the pan tool', async () => {
     await facade.createBlankMap(SMALL_MAP, 'A', 'world');
     facade.selectTool('pan');

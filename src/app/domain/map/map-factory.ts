@@ -41,6 +41,7 @@ export const MapFactory = {
       },
       features: [],
       rivers: [],
+      volcanoes: [],
       createdAt: identity.nowIso,
       updatedAt: identity.nowIso,
     };

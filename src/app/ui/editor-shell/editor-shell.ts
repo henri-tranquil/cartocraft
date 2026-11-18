@@ -314,7 +314,8 @@ export class EditorShell implements OnInit {
     // World step: only the Relief panel edits the terrain; elsewhere a click just moves the map.
     effect(() => this.facade.setEditingEnabled(this.activeSection() === 'relief'));
     effect(() => this.facade.setRendered(this.inWorld() && this.activeSection() === 'render'));
-    effect(() => this.facade.setNamesEditing(this.inWorld() && this.activeSection() === 'names'));
+    // Names: the Names section of the World step, or the « Nommer » tool of the Draw step.
+    effect(() => this.facade.setNamesEditing(this.inWorld() ? this.activeSection() === 'names' : this.facade.drawTool() === 'names'));
     // The latitude ruler belongs to the Climate panel: leaving it (or the World step) closes the ruler.
     effect(() => {
       if (!this.inWorld() || this.activeSection() !== 'climate') this.facade.stopLatitudeEditing();

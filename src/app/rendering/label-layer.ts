@@ -1,6 +1,7 @@
 import { MapFeature, RangeFeature, RegionFeature, RiverFeature } from '../domain/features/map-feature';
 import { ringBounds } from '../domain/features/polygon';
 import { findRiverPoint, RiverNetwork } from '../domain/hydrology/rivers';
+import { DrawnRiver, drawnRiverWidthKm, nearestDrawnRiverPoint } from '../domain/drawing/drawn-river';
 import { cumulativeLength, Glyph, layoutTextOnPath } from './path-text';
 import { chaikin } from './river-layer';
 import { LABEL_STYLE, labelFontPx, minPxPerKm } from './style/label-style';
@@ -58,6 +59,11 @@ export interface LabelLayoutOptions {
   readonly dragged?: { readonly id: string; readonly xKm: number; readonly yKm: number } | null;
   /** Computed rivers, and the smallest discharge drawn at this scale (river names follow them). */
   readonly rivers?: { readonly network: RiverNetwork; readonly minDischargeM3s: number } | null;
+  /**
+   * Draw step: river names follow the DRAWN rivers instead (with their upstream
+   * length per vertex, for the size of the name). Takes precedence over `rivers`.
+   */
+  readonly drawnRivers?: { readonly rivers: readonly DrawnRiver[]; readonly flowsKm: ReadonlyMap<string, Float64Array> } | null;
 }
 
 export const UNNAMED_TEXT = '(sans nom)';
@@ -105,7 +111,11 @@ export function layoutLabels(
         label = layoutZone(feature, x, y, vp, cellKm, measure, selected);
         break;
       case 'river':
-        label = options.rivers ? layoutRiver(feature, x, y, vp, cellKm, measure, options.rivers, selected) : null;
+        label = options.drawnRivers
+          ? layoutDrawnRiver(feature, vp, cellKm, measure, options.drawnRivers, dragged ?? feature)
+          : options.rivers
+            ? layoutRiver(feature, x, y, vp, cellKm, measure, options.rivers, selected)
+            : null;
         break;
       case 'range':
         label = layoutRange(feature, x, y, dragged ? { dx: dragged.xKm - feature.xKm, dy: dragged.yKm - feature.yKm } : null, vp, cellKm, measure, selected);
@@ -249,6 +259,54 @@ function layoutRiver(
     }
   }
   const fontPx = Math.min(LABEL_STYLE.riverFontMaxPx, LABEL_STYLE.riverFontMinPx + 1.2 * Math.log2(q[hit.point] / minDischargeM3s + 1));
+  const spacingPx = fontPx * LABEL_STYLE.riverSpacingEm;
+  const text = feature.name.trim() || UNNAMED_TEXT;
+  const glyphs = layoutTextOnPath(text, smooth.xs, smooth.ys, centerS, fontPx, spacingPx, charMeasure(measure), 0.9);
+  return glyphs ? curvedLabel(feature, anchor.x, anchor.y, text, fontPx, spacingPx, glyphs) : null;
+}
+
+/** Tolerance (km) when finding the drawn river a name is anchored on. */
+const DRAWN_RIVER_ANCHOR_KM = 0.5;
+
+/** A river's name along its DRAWN course (Draw step), centred on the anchor; size from the river's width. */
+function layoutDrawnRiver(
+  feature: RiverFeature,
+  vp: Viewport,
+  cellKm: number,
+  measure: TextMeasure,
+  drawn: { readonly rivers: readonly DrawnRiver[]; readonly flowsKm: ReadonlyMap<string, Float64Array> },
+  at: { readonly xKm: number; readonly yKm: number },
+): PlacedLabel | null {
+  const hit = nearestDrawnRiverPoint(drawn.rivers, at.xKm, at.yKm, Math.max(DRAWN_RIVER_ANCHOR_KM, cellKm));
+  if (!hit) return null;
+  const p = hit.river.pointsKm;
+  const xs: number[] = [];
+  const ys: number[] = [];
+  const vs: number[] = [];
+  for (let i = 0; i < p.length; i += 2) {
+    const s = cellToScreen(vp, p[i] / cellKm, p[i + 1] / cellKm);
+    xs.push(s.x);
+    ys.push(s.y);
+    vs.push(i / 2);
+  }
+  const smooth = chaikin(xs, ys, vs, 3);
+  const cum = cumulativeLength(smooth.xs, smooth.ys);
+  const anchor = cellToScreen(vp, hit.xKm / cellKm, hit.yKm / cellKm);
+  let centerS = 0;
+  let nearest = 0;
+  let bestD = Infinity;
+  for (let i = 0; i < smooth.xs.length; i++) {
+    const d = (smooth.xs[i] - anchor.x) ** 2 + (smooth.ys[i] - anchor.y) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      centerS = cum[i];
+      nearest = i;
+    }
+  }
+  const flow = drawn.flowsKm.get(hit.river.id);
+  const upstreamKm = flow ? flow[Math.min(flow.length - 1, Math.round(smooth.vs[nearest]))] : 0;
+  const widthPx = (drawnRiverWidthKm(upstreamKm) * vp.pixelsPerCell) / cellKm;
+  const fontPx = Math.min(LABEL_STYLE.riverFontMaxPx, LABEL_STYLE.riverFontMinPx + 1.2 * Math.log2(widthPx + 1));
   const spacingPx = fontPx * LABEL_STYLE.riverSpacingEm;
   const text = feature.name.trim() || UNNAMED_TEXT;
   const glyphs = layoutTextOnPath(text, smooth.xs, smooth.ys, centerS, fontPx, spacingPx, charMeasure(measure), 0.9);

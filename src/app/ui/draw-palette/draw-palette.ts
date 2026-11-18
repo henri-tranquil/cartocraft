@@ -36,7 +36,7 @@ import { DRAW_GROUPS, PAN_TOOL } from './draw-tools';
             <button
               type="button"
               class="tool"
-              [disabled]="!tool.id || !facade.layerEditable()"
+              [disabled]="!tool.id || (!facade.layerEditable() && tool.id !== 'names')"
               [attr.aria-pressed]="tool.id !== null && facade.drawTool() === tool.id"
               [title]="tool.label + (tool.key ? ' (' + tool.key + ')' : '') + ' — ' + tool.description"
               (click)="tool.id && facade.selectDrawTool(tool.id)"
@@ -51,7 +51,7 @@ import { DRAW_GROUPS, PAN_TOOL } from './draw-tools';
         </div>
       </section>
     }
-    <p class="note">Ordre conseillé : la côte, puis le relief, les forêts et les fleuves. Rien n’est figé : tout se repeint.</p>
+    <p class="note">Ordre conseillé : la côte, puis le relief, les forêts, les eaux et enfin les noms. Rien n’est figé : tout se repeint.</p>
   `,
   styles: `
     :host { display: flex; flex-direction: column; gap: 14px; }

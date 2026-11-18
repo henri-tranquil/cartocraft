@@ -3,6 +3,7 @@ import { hash2 } from '../../domain/terrain/noise';
 import { snowCapChance, snowZoneChance } from '../../domain/drawing/drawing-climate';
 import { getCellClamped, Int16TiledGrid } from '../../domain/terrain/tiled-grid';
 import { VINTAGE } from '../style/vintage-style';
+import { VolcanoKind } from '../../domain/drawing/drawn-volcano';
 import { drawTreeGlyph } from '../vintage-forests';
 import { Ctx2D, drawMountainGlyph } from '../vintage-mountains';
 
@@ -54,6 +55,25 @@ export const FOREST_GLYPHS = {
 export function glyphZoom(level: number, mapSideCells: number): number {
   const fitLevel = Math.log2(800 / mapSideCells);
   return Math.min(2.5, Math.max(0.8, 2 ** ((level - fitLevel) * 0.45)));
+}
+
+/**
+ * Volcano pictogram (CSS px, times the same zoom factor as the mountains): a
+ * truncated mountain a bit larger than a high mountain, so it stands out of a range.
+ * Mountain and tree glyphs under its cone are left out.
+ */
+export const VOLCANO_GLYPH = { w: 34, h: 30 } as const;
+
+/** A volcano to draw in a tile: base position in the level's px (absolute), and whether it has snow. */
+export interface VolcanoGlyphSpot {
+  readonly x: number;
+  readonly y: number;
+  readonly snow: boolean;
+  readonly kind: VolcanoKind;
+  /** 0..1, fixed per volcano: its own small irregularities. */
+  readonly variant: number;
+  /** Size factor ≤ 1: shrinks the glyph on far views, where a full-size volcano covers a whole region. */
+  readonly scale: number;
 }
 
 /** Largest glyph extent (CSS px) beyond its lattice point: how far a cell change can reach on screen. */
@@ -115,14 +135,32 @@ export function drawDrawingGlyphs(
   blocked: (x: number, y: number) => boolean = () => false,
   /** Warmest month at sea level per cell row (°C): where glyphs get snow. */
   warmestC: Float32Array | null = null,
+  /** Volcanoes near the tile (level px, absolute). */
+  volcanoes: readonly VolcanoGlyphSpot[] = [],
 ): void {
-  const reliefs = placeReliefGlyphs(drawing, seed, level, originX, originY, tilePx, pxScale, blocked, warmestC);
-  const trees = placeTreeGlyphs(drawing, seed, level, originX, originY, tilePx, pxScale, blocked, warmestC);
-  // Merge the two sorted lists by base: back to front.
+  // Nothing grows on a volcano's cone: a triangle-ish footprint above its base.
+  const underCone = (x: number, y: number): boolean =>
+    volcanoes.some((v) => {
+      const vw = VOLCANO_GLYPH.w * pxScale * v.scale;
+      const vh = VOLCANO_GLYPH.h * pxScale * v.scale;
+      return y <= v.y + vh * 0.1 && y >= v.y - vh * 0.9 && Math.abs(x - v.x) <= vw * 0.5 * (0.35 + 0.65 * Math.min(1, (y - (v.y - vh)) / vh));
+    });
+  const free = volcanoes.length > 0 ? (x: number, y: number) => blocked(x, y) || underCone(x, y) : blocked;
+  const reliefs = placeReliefGlyphs(drawing, seed, level, originX, originY, tilePx, pxScale, free, warmestC);
+  const trees = placeTreeGlyphs(drawing, seed, level, originX, originY, tilePx, pxScale, free, warmestC);
+  const cones = volcanoes.map((v) => ({ ...v, x: v.x - originX, y: v.y - originY })).sort((p, q) => p.y - q.y);
+  // Merge the three sorted lists by base: back to front.
   let i = 0;
   let j = 0;
-  while (i < reliefs.length || j < trees.length) {
-    if (j >= trees.length || (i < reliefs.length && reliefs[i].y <= trees[j].y)) {
+  let k = 0;
+  while (i < reliefs.length || j < trees.length || k < cones.length) {
+    const ry = i < reliefs.length ? reliefs[i].y : Infinity;
+    const ty = j < trees.length ? trees[j].y : Infinity;
+    const cy = k < cones.length ? cones[k].y : Infinity;
+    if (cy <= ry && cy <= ty) {
+      const c = cones[k++];
+      drawVolcanoGlyph(ctx, c.x, c.y, VOLCANO_GLYPH.w * pxScale * c.scale, VOLCANO_GLYPH.h * pxScale * c.scale, c.kind, c.snow, c.variant);
+    } else if (ry <= ty) {
       const g = reliefs[i++];
       const size = RELIEF_GLYPHS.sizes[g.relief - 1];
       const w = size.w * g.scale * pxScale;
@@ -258,6 +296,160 @@ export function placeReliefGlyphs(
   }
   return glyphs.sort((p, q) => p.y - q.y);
 }
+
+/**
+ * A volcano = the mountain pictogram with its head cut off: same pen flanks,
+ * same shaded east side and hatching, but a flat broken top holding the
+ * crater. The kind (chosen by the user) changes the proportions and details:
+ * erupting (red crater, two short lava trickles, a puff of smoke), smoking
+ * (dark crater, a thin wisp), shield (wider and lower, red crater, no smoke).
+ */
+export function drawVolcanoGlyph(ctx: Ctx2D, x: number, y: number, w: number, h: number, kind: VolcanoKind, snow = false, v = 0.5): void {
+  if (kind === 'shield') {
+    w *= 1.25;
+    h *= 0.7;
+  }
+  let state = Math.floor(v * 0x7fffffff) || 1;
+  const rand = (): number => {
+    state = (Math.imul(state, 48271) % 0x7fffffff) >>> 0;
+    return state / 0x7fffffff;
+  };
+  const half = w / 2;
+  // The cone would peak at y − h; it is cut at 72 % of that height.
+  const peakX = x + (rand() - 0.5) * w * 0.15;
+  const cut = 0.28;
+  const topY = y - h * (1 - cut);
+  const lipL = { x: peakX - half * cut * 1.1, y: topY + h * 0.015 * rand() };
+  const lipR = { x: peakX + half * cut * 1.1, y: topY + h * (0.02 + 0.03 * rand()) };
+  // Pen flanks: from each lip down to the foot, slightly concave and jittered (as the mountains).
+  const flank = (from: { x: number; y: number }, toX: number): [number, number][] => {
+    const pts: [number, number][] = [];
+    const steps = 4;
+    for (let k = 1; k < steps; k++) {
+      const t = k / steps;
+      const tt = t * (0.85 + 0.3 * rand());
+      pts.push([from.x + (toX - from.x) * tt + (rand() - 0.5) * w * 0.05, from.y + (y - from.y) * Math.pow(t, 0.8) - rand() * h * 0.06]);
+    }
+    pts.push([toX, y]);
+    return pts;
+  };
+  const left = flank(lipL, x - half).reverse();
+  const right = flank(lipR, x + half);
+  const ridgeFootX = x + (peakX - x) * 0.3 + w * (0.06 + 0.08 * rand());
+  const fade = (color: string) => {
+    const g = ctx.createLinearGradient(0, topY, 0, y);
+    g.addColorStop(0, color);
+    g.addColorStop(0.55, color);
+    g.addColorStop(1, 'rgb(0 0 0 / 0)');
+    return g;
+  };
+  const outline = () => {
+    ctx.moveTo(left[0][0], left[0][1]);
+    for (const [px, py] of left) ctx.lineTo(px, py);
+    ctx.lineTo(lipL.x, lipL.y);
+    ctx.lineTo(lipR.x, lipR.y);
+    for (const [px, py] of right) ctx.lineTo(px, py);
+  };
+
+  // Smoke behind the cone: a few soft puffs drifting east.
+  if (kind !== 'shield') {
+    const puffs = kind === 'erupting' ? 4 : 3;
+    ctx.lineWidth = Math.max(0.5, Math.min(0.9, w / 40));
+    ctx.strokeStyle = 'rgb(52 38 24 / 0.5)';
+    for (let k = 0; k < puffs; k++) {
+      const t = (k + 1) / puffs;
+      const r = w * (kind === 'erupting' ? 0.07 + 0.07 * t : 0.04 + 0.04 * t);
+      const px = peakX + w * (0.04 + 0.16 * t) * (0.8 + 0.4 * rand());
+      const py = topY - h * (0.12 + 0.55 * t);
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, 2 * Math.PI);
+      ctx.fillStyle = `rgb(${200 - 40 * t} ${192 - 40 * t} ${182 - 36 * t} / ${0.85 - 0.3 * t})`;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(px, py, r, Math.PI * 1.1, Math.PI * 1.9);
+      ctx.stroke();
+    }
+  }
+
+  ctx.beginPath();
+  outline();
+  ctx.closePath();
+  ctx.fillStyle = fade(VOLCANO_LIT);
+  ctx.fill();
+  // Shaded flank.
+  ctx.beginPath();
+  ctx.moveTo(peakX + (lipR.x - peakX) * 0.2, topY);
+  ctx.lineTo(lipR.x, lipR.y);
+  for (const [px, py] of right) ctx.lineTo(px, py);
+  ctx.lineTo(ridgeFootX, y);
+  ctx.closePath();
+  ctx.fillStyle = fade(VOLCANO_SHADE);
+  ctx.fill();
+  if (snow) {
+    const l = left[left.length - 1];
+    const r = right[0];
+    ctx.beginPath();
+    ctx.moveTo(lipL.x, lipL.y);
+    ctx.lineTo(l[0], l[1]);
+    ctx.lineTo(lipL.x + (l[0] - lipL.x) * 0.3, l[1] - h * 0.04);
+    ctx.lineTo(peakX, topY + h * 0.18);
+    ctx.lineTo(lipR.x + (r[0] - lipR.x) * 0.5, r[1] - h * 0.02);
+    ctx.lineTo(r[0], r[1]);
+    ctx.lineTo(lipR.x, lipR.y);
+    ctx.closePath();
+    ctx.fillStyle = VINTAGE.snowCap;
+    ctx.fill();
+  }
+  // Lava: two short red trickles from the rim (erupting only).
+  if (kind === 'erupting') {
+    ctx.lineCap = 'round';
+    for (const side of [-1, 1]) {
+      const sx = peakX + side * half * cut * 0.5;
+      ctx.beginPath();
+      ctx.moveTo(sx, topY + h * 0.02);
+      ctx.quadraticCurveTo(sx + side * w * 0.05, topY + h * 0.18, sx + side * w * (0.06 + 0.05 * rand()), topY + h * (0.3 + 0.15 * rand()));
+      ctx.strokeStyle = VINTAGE_LAVA;
+      ctx.lineWidth = Math.max(0.8, Math.min(1.8, w / 16));
+      ctx.stroke();
+    }
+  }
+  ctx.strokeStyle = VINTAGE.ink;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  // Hatching on the shaded flank.
+  const hatches = Math.max(2, Math.min(7, Math.round(w / 5)));
+  ctx.lineWidth = Math.max(0.5, Math.min(0.9, w / 36));
+  ctx.beginPath();
+  for (let k = 1; k <= hatches; k++) {
+    const t = (k - 0.3 + 0.6 * rand()) / (hatches + 1);
+    const sx = lipR.x + (ridgeFootX - lipR.x) * t * 0.6;
+    const sy = topY + (y - topY) * t;
+    const len = Math.min((x + half - sx) * (0.3 + 0.4 * rand()), (y - sy) * 1.2);
+    ctx.moveTo(sx + 0.5, sy + 0.5);
+    ctx.lineTo(sx + len * 0.55, sy + len * 0.8);
+  }
+  ctx.stroke();
+  // Outline, open at the base.
+  ctx.lineWidth = Math.max(0.7, Math.min(1.4, w / 18));
+  ctx.beginPath();
+  outline();
+  ctx.strokeStyle = fade(VINTAGE.ink);
+  ctx.stroke();
+  // Crater: an ellipse in the cut top, red (or dark when only smoking).
+  ctx.beginPath();
+  ctx.ellipse(peakX, (lipL.y + lipR.y) / 2, (lipR.x - lipL.x) * 0.42, Math.max(0.7, h * 0.045), 0, 0, 2 * Math.PI);
+  ctx.fillStyle = kind === 'smoking' ? VINTAGE.ink : VINTAGE_LAVA;
+  ctx.fill();
+  ctx.lineWidth = Math.max(0.5, Math.min(1, w / 30));
+  ctx.strokeStyle = VINTAGE.ink;
+  ctx.stroke();
+}
+
+/** Lava red of the volcano glyphs: a muted vermilion, like an old map's red ink. */
+const VINTAGE_LAVA = 'rgb(196 58 32)';
+/** Volcanic rock: the mountain colours, a good deal darker (ash and basalt). */
+const VOLCANO_LIT = 'rgb(172 156 136)';
+const VOLCANO_SHADE = 'rgb(104 88 74)';
 
 /** A low rounded hump, outlined on top, a few hatches on the shaded (east) side. */
 export function drawHillGlyph(ctx: Ctx2D, x: number, y: number, w: number, h: number, v: number, snow = false): void {

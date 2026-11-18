@@ -88,6 +88,14 @@ export const DRAW_GROUPS: readonly DrawToolGroup[] = [
         description: 'Grandes chaînes aux sommets enneigés.',
         hint: 'À la conversion en monde : 1 500 à 4 000 m. Plus on zoome, plus les pictos sont nombreux et petits par rapport à la chaîne.',
       },
+      {
+        id: 'volcano',
+        icon: 'volcano',
+        label: 'Volcan',
+        key: 'V',
+        description: 'Choisis son type à droite, puis clique sur la terre pour le poser. Glisse un volcan existant pour le déplacer.',
+        hint: 'Un volcan est un sommet isolé, pas une zone : il se pose n’importe où sur la terre, même en plaine. Pour l’enlever : outil « Effacer » (E). Pour le nommer : outil « Nommer » (N), type « Sommet ».',
+      },
     ],
   },
   {
@@ -132,6 +140,14 @@ export const DRAW_GROUPS: readonly DrawToolGroup[] = [
     title: 'Eaux',
     tools: [
       {
+        id: 'lake',
+        icon: 'lake',
+        label: 'Lac',
+        key: 'L',
+        description: 'Peins un lac dans les terres. Sa rive se dessine comme la côte.',
+        hint: 'Ne se peint que sur la terre. Un fleuve tracé jusqu’au lac s’y arrête ; tracé depuis le lac vers la mer, c’est son émissaire. Pour agrandir les terres sur un lac : outil « Terre ».',
+      },
+      {
         id: 'river',
         icon: 'river',
         label: 'Fleuve',
@@ -142,10 +158,24 @@ export const DRAW_GROUPS: readonly DrawToolGroup[] = [
       {
         id: 'riverErase',
         icon: 'trash',
-        label: 'Effacer un fleuve',
+        label: 'Effacer',
         key: 'E',
-        description: 'Clique sur un fleuve pour le supprimer.',
-        hint: 'Ses affluents restent : ils sont signalés dans « À vérifier » s’ils ne finissent plus nulle part.',
+        description: 'Clique sur un fleuve ou un volcan pour le supprimer.',
+        hint: 'Les affluents d’un fleuve effacé restent : ils sont signalés dans « À vérifier » s’ils ne finissent plus nulle part. Pour un lac : repeins-le avec « Terre ».',
+      },
+    ],
+  },
+  {
+    step: 5,
+    title: 'Noms',
+    tools: [
+      {
+        id: 'names',
+        icon: 'names',
+        label: 'Nommer',
+        key: 'N',
+        description: 'Pose et modifie les noms : villes, sommets, régions, mers, chaînes, fleuves.',
+        hint: 'Choisis le type dans le panneau de droite, puis clique sur la carte. Clique un nom pour le modifier, glisse-le pour le déplacer.',
       },
     ],
   },
