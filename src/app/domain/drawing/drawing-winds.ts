@@ -2,7 +2,7 @@ import { prevailingWind } from '../climate/wind';
 import { rowSeaLevelTemperaturesC } from '../climate/temperature';
 import { latitudeAtRow } from '../map/latitude';
 import { MapSettings } from '../map/map-settings';
-import { getCell, Int16TiledGrid } from '../terrain/tiled-grid';
+import { Int16TiledGrid } from '../terrain/tiled-grid';
 import { forestIndexOf, isLandCode, reliefIndexOf } from './drawing-cell';
 
 /**
@@ -54,6 +54,13 @@ export interface DrawingAirField {
   readonly water: Float32Array;
   /** Share of forest 0..1. */
   readonly forest: Float32Array;
+  /** Per coarse row: latitude (°, north positive). */
+  readonly rowLatitudeDeg: Float32Array;
+  /** Per coarse row: warmest month at sea level (°C), halfway land / sea. */
+  readonly rowWarmestC: Float32Array;
+  /** Per coarse row × 12 months: departure of each month from the annual mean (°C), deep inland and over the open sea. */
+  readonly rowLandDevC: Float32Array;
+  readonly rowSeaDevC: Float32Array;
   /** Per coarse row: annual mean sea-level temperature (°C) and prevailing wind (m/s, east and NORTH components). */
   readonly rowTempC: Float32Array;
   readonly rowEastMs: Float32Array;
@@ -75,10 +82,14 @@ export function drawingAirField(drawing: Int16TiledGrid, cellKm: number, setting
   const water = new Float32Array(w * h);
   const forest = new Float32Array(w * h);
   const count = new Uint32Array(w * h);
+  // Read tile by tile (getCell per cell was most of the cost on large maps).
+  const ts = drawing.tileSize;
   for (let y = 0; y < drawing.heightCells; y++) {
     const row = Math.floor(y / factor) * w;
+    const tileRow = Math.floor(y / ts) * drawing.tilesX;
+    const offset = (y % ts) * ts;
     for (let x = 0; x < drawing.widthCells; x++) {
-      const code = getCell(drawing, x, y);
+      const code = drawing.tiles[tileRow + Math.floor(x / ts)][offset + (x % ts)];
       const i = row + Math.floor(x / factor);
       if (isLandCode(code)) {
         relief[i] += RELIEF_BARRIER[reliefIndexOf(code)];
@@ -96,17 +107,31 @@ export function drawingAirField(drawing: Int16TiledGrid, cellKm: number, setting
   }
   const coarseKm = cellKm * factor;
   const radius = Math.max(1, Math.round(FIELD_BLUR_KM / coarseKm));
+  const rowLatitudeDeg = new Float32Array(h);
   const rowTempC = new Float32Array(h);
+  const rowWarmestC = new Float32Array(h);
+  const rowLandDevC = new Float32Array(h * 12);
+  const rowSeaDevC = new Float32Array(h * 12);
   const rowEastMs = new Float32Array(h);
   const rowNorthMs = new Float32Array(h);
   const rowWaveMs = new Float32Array(h);
   const heightCells = h * factor;
   for (let r = 0; r < h; r++) {
     const lat = latitudeAtRow(settings, heightCells, (r + 0.5) * factor);
+    rowLatitudeDeg[r] = lat;
     const { land, sea } = rowSeaLevelTemperaturesC(lat, settings);
     let sum = 0;
-    for (let m = 0; m < land.length; m++) sum += (land[m] + sea[m]) / 2;
+    let warmest = -Infinity;
+    for (let m = 0; m < land.length; m++) {
+      sum += (land[m] + sea[m]) / 2;
+      warmest = Math.max(warmest, (land[m] + sea[m]) / 2);
+    }
     rowTempC[r] = sum / land.length;
+    rowWarmestC[r] = warmest;
+    for (let m = 0; m < 12; m++) {
+      rowLandDevC[r * 12 + m] = land[m] - rowTempC[r];
+      rowSeaDevC[r * 12 + m] = sea[m] - rowTempC[r];
+    }
     // Belts at their annual mean position (no seasonal shift).
     const wind = prevailingWind(lat, 0, 0);
     rowEastMs[r] = wind.uMs;
@@ -124,7 +149,11 @@ export function drawingAirField(drawing: Int16TiledGrid, cellKm: number, setting
     barrier,
     water,
     forest,
+    rowLatitudeDeg,
     rowTempC,
+    rowWarmestC,
+    rowLandDevC,
+    rowSeaDevC,
     rowEastMs,
     rowNorthMs,
     rowWaveMs,
@@ -212,7 +241,7 @@ function boxBlur(src: Float32Array, w: number, h: number, r: number): Float32Arr
 }
 
 /** Bilinear sample of a coarse grid at a point in km (clamped at the edges). */
-function sample(field: DrawingAirField, grid: Float32Array, xKm: number, yKm: number): number {
+export function sample(field: DrawingAirField, grid: Float32Array, xKm: number, yKm: number): number {
   const fx = Math.min(field.widthCells - 1, Math.max(0, xKm / field.cellKm - 0.5));
   const fy = Math.min(field.heightCells - 1, Math.max(0, yKm / field.cellKm - 0.5));
   const x0 = Math.floor(fx);
@@ -228,7 +257,7 @@ function sample(field: DrawingAirField, grid: Float32Array, xKm: number, yKm: nu
 }
 
 /** Linear sample of a per-row value at a y in km. */
-function sampleRow(field: DrawingAirField, rows: Float32Array, yKm: number): number {
+export function sampleRow(field: DrawingAirField, rows: Float32Array, yKm: number): number {
   const fy = Math.min(field.heightCells - 1, Math.max(0, yKm / field.cellKm - 0.5));
   const y0 = Math.floor(fy);
   const y1 = Math.min(field.heightCells - 1, y0 + 1);
@@ -253,11 +282,11 @@ const RELAX_KM = 300;
 /** Distance over which an air mass takes the temperature of the place. */
 export const AIR_MEMORY_KM = 1200;
 /** Moisture pick-up over water and forest, drying over bare land (e-folding distances, km). */
-const WATER_MOISTENING_KM = 400;
-const FOREST_MOISTENING_KM = 1200;
+export const WATER_MOISTENING_KM = 200;
+export const FOREST_MOISTENING_KM = 1200;
 const LAND_DRYING_KM = 3000;
 /** Below this prevailing speed (m/s) the air is in a calm belt or a convergence: the line ends. */
-const CALM_MS = 0.6;
+export const CALM_MS = 0.6;
 /** Length of one streamline, km. */
 const LINE_KM = 700;
 /** Seeds: about this many along the longest side of the map. */
@@ -296,7 +325,7 @@ export function traceDrawingWinds(field: DrawingAirField): AirStreamline[] {
 }
 
 /** Prevailing direction at a point (belts + wave), map axes (x east, y SOUTH), and its speed in m/s. */
-function prevailingAt(field: DrawingAirField, xKm: number, yKm: number): { dx: number; dy: number; speed: number } {
+export function prevailingAt(field: DrawingAirField, xKm: number, yKm: number): { dx: number; dy: number; speed: number } {
   const east = sampleRow(field, field.rowEastMs, yKm);
   const north = sampleRow(field, field.rowNorthMs, yKm) + waveNorthMs(field, xKm, yKm);
   const speed = Math.hypot(east, north);
@@ -365,7 +394,7 @@ export function traceStreamline(field: DrawingAirField, startX: number, startY: 
 }
 
 /** Removes the uphill part of the direction where the relief ahead rises: more for cold air than for warm air. */
-function deflect(field: DrawingAirField, x: number, y: number, dx: number, dy: number, tempC: number): [number, number] {
+export function deflect(field: DrawingAirField, x: number, y: number, dx: number, dy: number, tempC: number): [number, number] {
   const ax = x + dx * LOOK_AHEAD_KM;
   const ay = y + dy * LOOK_AHEAD_KM;
   const w = smoothstep(COLD_AIR_C, WARM_AIR_C, tempC);

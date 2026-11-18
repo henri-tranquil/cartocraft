@@ -1,7 +1,7 @@
 import { fbm, hash2 } from '../../domain/terrain/noise';
 import { Rgb, VINTAGE } from '../style/vintage-style';
 import { CoveragePyramid } from './coverage-pyramid';
-import { reliefCoolingC, ZonalRows } from '../../domain/drawing/drawing-climate';
+import { GroundClimate, reliefCoolingC, snowCoverChance } from '../../domain/drawing/drawing-climate';
 
 /** Side of a rendered tile, in pixels (device pixels). */
 export const DRAWING_TILE_PX = 256;
@@ -33,6 +33,9 @@ export const DRAWING_STYLE = {
   /** Forest wash: a pale green under the trees. */
   forestWashStrength: 0.4,
   forestWash: [160, 168, 112] as Rgb,
+  /** Snow on the ground in the month shown, and how far it covers the wash (the parchment grain stays). */
+  snowGround: [246, 245, 238] as Rgb,
+  snowStrength: 0.8,
   /** Coast wiggle: noise amplitude (in land fraction) and period (in cells). Adds detail below the cell size. */
   coastNoise: 0.22,
   coastNoisePeriodCells: 3,
@@ -54,8 +57,8 @@ export interface DrawingTileContext {
   readonly forestPyramid: CoveragePyramid;
   /** Lake cells (fresh water); optional: without it, all water is sea. */
   readonly lakePyramid?: CoveragePyramid;
-  /** Climate guessed from the latitude (one value per cell row): the ground colour. */
-  readonly zonal: ZonalRows;
+  /** Climate of the ground (by latitude, or brought by the winds): its colour. */
+  readonly climate: GroundClimate;
   readonly widthCells: number;
   readonly heightCells: number;
   readonly seed: number;
@@ -139,7 +142,8 @@ export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, 
   const lakes = new Float32Array(L * L);
   const wets = new Float32Array(L * L);
   const colds = new Float32Array(L * L);
-  const { wetnessPct, warmestC } = ctx.zonal;
+  const snows = new Float32Array(L * L);
+  const { climate } = ctx;
   const reliefLevel = Math.max(0, Math.min(ctx.reliefPyramid.maxLevel, -key.level + 1));
   for (let b = 0; b < L; b++) {
     const y = (originY + 1 + b * LATTICE_STEP + 0.5) * cellsPerPx;
@@ -151,10 +155,10 @@ export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, 
       reliefs[b * L + a] = ctx.reliefPyramid.sample(reliefLevel, x, y);
       forests[b * L + a] = ctx.forestPyramid.sample(reliefLevel, x, y);
       lakes[b * L + a] = ctx.lakePyramid ? ctx.lakePyramid.sample(landLevel, x, y) : 0;
-      // Same wash as the rendered view: dry → wet by latitude, pale where summers are cold (high or far north).
-      const row = Math.max(0, Math.min(heightCells - 1, Math.floor(y)));
-      wets[b * L + a] = smoothstep(VINTAGE.washDryPct, VINTAGE.washWetPct, wetnessPct[row]);
-      colds[b * L + a] = 1 - smoothstep(VINTAGE.washColdC, VINTAGE.washMildC, warmestC[row] - reliefCoolingC(reliefs[b * L + a]));
+      // Same wash as the rendered view: dry → wet, pale where summers are cold (high or far north).
+      wets[b * L + a] = smoothstep(VINTAGE.washDryPct, VINTAGE.washWetPct, climate.wetnessPct(x, y));
+      colds[b * L + a] = 1 - smoothstep(VINTAGE.washColdC, VINTAGE.washMildC, climate.warmestC(x, y) - reliefCoolingC(reliefs[b * L + a]));
+      snows[b * L + a] = snowCoverChance(climate.monthC(x, y) - reliefCoolingC(reliefs[b * L + a]));
     }
   }
 
@@ -168,6 +172,7 @@ export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, 
   const [wetR, wetG, wetB] = VINTAGE.landWet;
   const [colR, colG, colB] = VINTAGE.landCold;
   const [relR, relG, relB] = DRAWING_STYLE.reliefWash;
+  const [snoR, snoG, snoB] = DRAWING_STYLE.snowGround;
   const [forR, forG, forB] = DRAWING_STYLE.forestWash;
   const [inkR, inkG, inkB] = DRAWING_STYLE.ink;
   const [lakR, lakG, lakB] = DRAWING_STYLE.lakeWater;
@@ -224,6 +229,13 @@ export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, 
         r = (gr + (relR - gr) * u + (forR - gr) * f + (edgR - gr) * t) * shade;
         g = (gg + (relG - gg) * u + (forG - gg) * f + (edgG - gg) * t) * shade;
         b = (gb + (relB - gb) * u + (forB - gb) * f + (edgB - gb) * t) * shade;
+        // Snow of the month: whitens everything but the darkened edge.
+        const snow = bilerp(snows, k, L, fx, fy) * DRAWING_STYLE.snowStrength * (1 - t);
+        if (snow > 0) {
+          r += (snoR - r) * snow;
+          g += (snoG - g) * snow;
+          b += (snoB - b) * snow;
+        }
       } else {
         const s = smoothstep(0.25, 0.75, stain);
         r = deepR + (openR - deepR) * s;

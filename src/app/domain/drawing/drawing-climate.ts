@@ -94,6 +94,56 @@ function ramp(a: number, b: number, x: number): number {
   return x <= a ? 0 : x >= b ? 1 : (x - a) / (b - a);
 }
 
+/**
+ * The climate the drawing's renderer reads (ground colour, snow on the glyphs),
+ * at a point in cell coordinates: zonal (by latitude only) until the winds'
+ * weather is computed, then the weather of drawing-weather.ts.
+ */
+export interface GroundClimate {
+  /** P / (P + PET), %. */
+  wetnessPct(xCell: number, yCell: number): number;
+  /** Warmest month at sea level, °C. */
+  warmestC(xCell: number, yCell: number): number;
+  /** The month shown (season slider), at sea level, °C. */
+  monthC(xCell: number, yCell: number): number;
+}
+
+/** Before the winds' weather is computed: by latitude only, and no seasonal snow (the month reads as summer). */
+export function zonalGroundClimate(rows: ZonalRows): GroundClimate {
+  const row = (y: number) => Math.max(0, Math.min(rows.warmestC.length - 1, Math.floor(y)));
+  return {
+    wetnessPct: (_x, y) => rows.wetnessPct[row(y)],
+    warmestC: (_x, y) => rows.warmestC[row(y)],
+    monthC: (_x, y) => rows.warmestC[row(y)],
+  };
+}
+
+/**
+ * SEASONAL SNOW: the ground (and the trees, the hills) is white when the
+ * month shown is cold enough at its height: full cover below −3 °C, none above
+ * +1 °C (a monthly mean around 0 °C means days of thaw and days of snow).
+ */
+export const SNOW_COVER_C = { full: -3, none: 1 } as const;
+
+/** Chance of snow cover for a ground temperature of the month (°C). */
+export function snowCoverChance(groundMonthC: number): number {
+  return 1 - ramp(SNOW_COVER_C.full, SNOW_COVER_C.none, groundMonthC);
+}
+
+/**
+ * Snow on a glyph at a point, for the month shown. `cap`: mountain glyphs,
+ * whose summit keeps snow longer (it is higher than the ground) and all year
+ * where summers are cold (perennial caps, see snowCapChance). Others: the
+ * snow cover of the ground at the class's altitude.
+ */
+export function glyphSnowChance(climate: GroundClimate, xCell: number, yCell: number, reliefIndex: number, cap: boolean): number {
+  const month = climate.monthC(xCell, yCell);
+  const cover = snowCoverChance(month - reliefClassAltitudeM(reliefIndex) * LAPSE_RATE_C_PER_M);
+  if (!cap) return cover;
+  const summit = snowCoverChance(month - RELIEF_SUMMIT_M[Math.min(3, reliefIndex)] * LAPSE_RATE_C_PER_M);
+  return Math.max(cover, summit, snowCapChance(climate.warmestC(xCell, yCell), reliefIndex));
+}
+
 export interface ZonalRows {
   /** Per cell row: zonal wetness (%). */
   readonly wetnessPct: Float32Array;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { reliefAltitudeM, reliefCoolingC, snowCapChance, snowZoneChance, zonalRows, zonalWetnessPct } from './drawing-climate';
+import { glyphSnowChance, reliefAltitudeM, reliefCoolingC, snowCapChance, snowCoverChance, snowZoneChance, zonalRows, zonalWetnessPct } from './drawing-climate';
 
 describe('drawing zonal climate', () => {
   it('is wet at the equator and in mid-latitudes, dry in the subtropics', () => {
@@ -33,5 +33,13 @@ describe('drawing zonal climate', () => {
     expect(snowCapChance(15, 2)).toBe(1);
     expect(snowCapChance(29, 3)).toBe(1);
     expect(snowCapChance(5, 1)).toBe(0);
+  });
+
+  it('puts seasonal snow on the ground below about 0 °C, and keeps it longer on summits', () => {
+    expect(snowCoverChance(-5)).toBe(1);
+    expect(snowCoverChance(5)).toBe(0);
+    const march = { wetnessPct: () => 50, warmestC: () => 20, monthC: () => 3 };
+    expect(glyphSnowChance(march, 0, 0, 0, false)).toBe(0); // plain at 100 m: +2.4 °C
+    expect(glyphSnowChance(march, 0, 0, 2, true)).toBe(1); // mid mountain summit at 2000 m: −10 °C
   });
 });

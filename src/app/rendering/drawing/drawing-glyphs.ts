@@ -1,6 +1,6 @@
 import { forestIndexOf, isLandCode, reliefIndexOf } from '../../domain/drawing/drawing-cell';
 import { hash2 } from '../../domain/terrain/noise';
-import { snowCapChance, snowZoneChance } from '../../domain/drawing/drawing-climate';
+import { glyphSnowChance, GroundClimate } from '../../domain/drawing/drawing-climate';
 import { getCellClamped, Int16TiledGrid } from '../../domain/terrain/tiled-grid';
 import { VINTAGE } from '../style/vintage-style';
 import { VolcanoKind } from '../../domain/drawing/drawn-volcano';
@@ -87,11 +87,6 @@ const SALT_SIZE = 0x2b3d;
 const SALT_VARIANT = 0x6e0f;
 const SALT_SNOW = 0x4c2b;
 
-/** Warmest month at sea level of the glyph's row (°C), or null when unknown (no snow but high caps). */
-function rowWarmestC(warmestC: Float32Array | null, yCell: number): number | null {
-  if (!warmestC || warmestC.length === 0) return null;
-  return warmestC[Math.max(0, Math.min(warmestC.length - 1, Math.floor(yCell)))];
-}
 
 export interface TreeGlyph {
   readonly x: number;
@@ -134,7 +129,7 @@ export function drawDrawingGlyphs(
   /** Lattice points (level px) where nothing grows: river beds. */
   blocked: (x: number, y: number) => boolean = () => false,
   /** Warmest month at sea level per cell row (°C): where glyphs get snow. */
-  warmestC: Float32Array | null = null,
+  climate: GroundClimate | null = null,
   /** Volcanoes near the tile (level px, absolute). */
   volcanoes: readonly VolcanoGlyphSpot[] = [],
 ): void {
@@ -146,8 +141,8 @@ export function drawDrawingGlyphs(
       return y <= v.y + vh * 0.1 && y >= v.y - vh * 0.9 && Math.abs(x - v.x) <= vw * 0.5 * (0.35 + 0.65 * Math.min(1, (y - (v.y - vh)) / vh));
     });
   const free = volcanoes.length > 0 ? (x: number, y: number) => blocked(x, y) || underCone(x, y) : blocked;
-  const reliefs = placeReliefGlyphs(drawing, seed, level, originX, originY, tilePx, pxScale, free, warmestC);
-  const trees = placeTreeGlyphs(drawing, seed, level, originX, originY, tilePx, pxScale, free, warmestC);
+  const reliefs = placeReliefGlyphs(drawing, seed, level, originX, originY, tilePx, pxScale, free, climate);
+  const trees = placeTreeGlyphs(drawing, seed, level, originX, originY, tilePx, pxScale, free, climate);
   const cones = volcanoes.map((v) => ({ ...v, x: v.x - originX, y: v.y - originY })).sort((p, q) => p.y - q.y);
   // Merge the three sorted lists by base: back to front.
   let i = 0;
@@ -186,7 +181,7 @@ export function placeTreeGlyphs(
   tilePx: number,
   pxScale: number,
   blocked: (x: number, y: number) => boolean = () => false,
-  warmestC: Float32Array | null = null,
+  climate: GroundClimate | null = null,
 ): TreeGlyph[] {
   const step = FOREST_GLYPHS.spacingPx * pxScale;
   const reach = Math.max(...FOREST_GLYPHS.sizes) * (1 + FOREST_GLYPHS.sizeJitter) * pxScale;
@@ -208,8 +203,7 @@ export function placeTreeGlyphs(
       if (blocked(x, y)) continue;
       const scale = 1 + (hash2(s ^ SALT_SIZE, a, b) - 0.5) * 2 * FOREST_GLYPHS.sizeJitter;
       // Palms never get snow: a tropical forest in the cold is a warning, not a look.
-      const warm = rowWarmestC(warmestC, y * cellsPerPx);
-      const snow = forest !== 3 && warm !== null && hash2(s ^ SALT_SNOW, a, b) < snowZoneChance(warm, reliefIndexOf(code));
+      const snow = forest !== 3 && climate !== null && hash2(s ^ SALT_SNOW, a, b) < glyphSnowChance(climate, x * cellsPerPx, y * cellsPerPx, reliefIndexOf(code), false);
       trees.push({ x: x - originX, y: y - originY, forest, scale, variant: hash2(s ^ SALT_VARIANT, a, b), snow });
     }
   }
@@ -266,7 +260,7 @@ export function placeReliefGlyphs(
   tilePx: number,
   pxScale: number,
   blocked: (x: number, y: number) => boolean = () => false,
-  warmestC: Float32Array | null = null,
+  climate: GroundClimate | null = null,
 ): ReliefGlyph[] {
   const step = RELIEF_GLYPHS.spacingPx * pxScale;
   const reach = RELIEF_GLYPH_REACH_PX * pxScale;
@@ -288,8 +282,8 @@ export function placeReliefGlyphs(
       if (relief === 1 && hash2(s ^ SALT_KEEP, a, b) > RELIEF_GLYPHS.hillDensity) continue;
       if (blocked(x, y)) continue;
       const scale = 1 + (hash2(s ^ SALT_SIZE, a, b) - 0.5) * 2 * RELIEF_GLYPHS.sizeJitter;
-      const warm = rowWarmestC(warmestC, y * cellsPerPx);
-      const chance = warm === null ? (relief === 3 ? 1 : 0) : relief === 1 ? snowZoneChance(warm, relief) : snowCapChance(warm, relief);
+      // Hills wear the ground's snow; mountains have caps (longer-lasting, perennial where summers are cold).
+      const chance = climate === null ? (relief === 3 ? 1 : 0) : glyphSnowChance(climate, x * cellsPerPx, y * cellsPerPx, relief, relief >= 2);
       const snow = hash2(s ^ SALT_SNOW, a, b) < chance;
       glyphs.push({ x: x - originX, y: y - originY, relief, scale, variant: hash2(s ^ SALT_VARIANT, a, b), snow });
     }

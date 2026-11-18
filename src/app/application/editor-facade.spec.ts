@@ -7,7 +7,8 @@ import { WorldMap } from '../domain/map/world-map';
 import { MapFormatError } from '../domain/serialization/map-document';
 import { EditorFacade } from './editor-facade';
 import { MapStore } from './map-store';
-import { CLIMATE_ENGINE, MAP_FILE_CODEC, MAP_REPOSITORY, WORLD_CONVERTER } from './ports';
+import { CLIMATE_ENGINE, DRAWING_WEATHER_ENGINE, MAP_FILE_CODEC, MAP_REPOSITORY, WORLD_CONVERTER } from './ports';
+import { computeDrawingWeather, DrawingWeatherEngine } from '../domain/drawing/drawing-weather';
 import { convertDrawingToWorld, WorldConverter } from '../domain/drawing/drawing-to-world';
 import { computeClimateRun } from '../domain/climate/climate-run';
 import { ClimateEngine } from '../domain/climate/climate-engine';
@@ -52,6 +53,7 @@ const failingCodec: MapFileCodec = {
 };
 
 const inlineConverter: WorldConverter = { convert: async (input) => convertDrawingToWorld(input) };
+const inlineWeather: DrawingWeatherEngine = { compute: async (field) => computeDrawingWeather(field) };
 
 describe('EditorFacade', () => {
   let facade: EditorFacade;
@@ -66,6 +68,7 @@ describe('EditorFacade', () => {
         { provide: MAP_FILE_CODEC, useValue: failingCodec },
         { provide: CLIMATE_ENGINE, useValue: inlineClimateEngine },
         { provide: WORLD_CONVERTER, useValue: inlineConverter },
+        { provide: DRAWING_WEATHER_ENGINE, useValue: inlineWeather },
       ],
     });
     facade = TestBed.inject(EditorFacade);
@@ -193,6 +196,22 @@ describe('EditorFacade', () => {
     expect(isLandCode(getCell(map.terrain.drawing, 35, 30))).toBe(false);
     expect(store.takeDirtyDrawingRects().length).toBeGreaterThan(0);
   }, CLIMATE_TEST_TIMEOUT_MS);
+
+  it('shows the temperature of the month chosen in the Draw step', async () => {
+    await facade.createBlankMap(SMALL_MAP, 'M');
+    facade.setWorkspace('draw');
+    facade.selectDrawTool('land');
+    facade.setDrawingBrush({ radiusKm: 80, roughness: 0 });
+    facade.pointerDown({ x: 100, y: 100 });
+    facade.pointerUp();
+    TestBed.tick();
+    await vi.waitFor(() => expect(facade.drawingWeather()).not.toBeNull());
+    facade.setYearPhase(0.5 / 12);
+    const january = facade.drawingTemperatureAt({ x: 100, y: 100 });
+    facade.setYearPhase(6.5 / 12);
+    const july = facade.drawingTemperatureAt({ x: 100, y: 100 });
+    expect(january && july && july.monthC - january.monthC).toBeGreaterThan(8);
+  });
 
   it('marks the world stale after a drawing edit, and converting brings land up and the climate to recompute', async () => {
     await facade.createBlankMap(CLIMATE_MAP, 'A');

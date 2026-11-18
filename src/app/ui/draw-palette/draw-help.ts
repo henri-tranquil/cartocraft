@@ -6,6 +6,8 @@ import { LatitudePanel } from '../latitude-panel/latitude-panel';
 import { NamesPanel } from '../names-panel/names-panel';
 import { VolcanoKind } from '../../domain/drawing/drawn-volcano';
 
+const MONTH_NAMES = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+
 const FOREST_NAME = { broadleaf: 'Feuillus', conifer: 'Résineux', tropical: 'Forêt tropicale' } as const;
 
 function warningText(warning: DrawingWarning, cellKm: number): string {
@@ -65,6 +67,14 @@ function formatArea(km2: number): string {
       </section>
     }
     <section class="card">
+      <h2>Mois</h2>
+      <label class="month">
+        <input type="range" min="0" max="11" step="1" aria-label="Mois affiché" [value]="month()" (input)="setMonth($event)" />
+        <output>{{ monthName() }}</output>
+      </label>
+      <p class="hint">La neige (au sol et sur les pictos) et la température sous le curseur suivent le mois choisi.</p>
+    </section>
+    <section class="card">
       <h2>Surcouche</h2>
       <button type="button" class="kind toggle" [attr.aria-pressed]="facade.windOverlayShown()" (click)="facade.setWindOverlayShown(!facade.windOverlayShown())">
         <b>Vents</b>
@@ -72,7 +82,7 @@ function formatArea(km2: number): string {
       </button>
       @if (facade.windOverlayShown()) {
         <div class="legend" aria-hidden="true"><i class="scale"></i><span>−15 °C</span><span>0</span><span>15</span><span>30 °C</span></div>
-        <p class="hint">Couleur = température de l’air, qui garde celle d’où il vient. Trait épais = air humide (chargé au-dessus de la mer, des lacs et des forêts). L’air froid longe les reliefs ; l’air chaud passe les collines. Les vents ne changent pas encore la couleur du sol.</p>
+        <p class="hint">Couleur = température de l’air, qui garde celle d’où il vient. Trait épais = air humide (chargé au-dessus de la mer, des lacs et des forêts). L’air froid longe les reliefs ; l’air chaud passe les collines. Les vents font la couleur du sol : vert là où il pleut (côtes au vent, versants exposés), ocre à l’abri des montagnes et loin de la mer.</p>
       }
     </section>
     <section class="card">
@@ -85,7 +95,7 @@ function formatArea(km2: number): string {
         }
       </ul>
     </section>
-    <cc-latitude-panel class="card" title="La couleur du sol suit la latitude : ocre vers les déserts (20–30°), vert à l’équateur et aux latitudes moyennes, pâle là où l’été est froid (grand nord, haute montagne)." />
+    <cc-latitude-panel class="card" title="La couleur du sol vient des vents, eux-mêmes réglés par la latitude : ocre vers les déserts (20–30°) et à l’abri des montagnes, vert sur les côtes au vent, pâle là où l’été est froid (grand nord, haute montagne)." />
     <section class="card">
       <h2>Raccourcis</h2>
       <dl>
@@ -118,6 +128,9 @@ function formatArea(km2: number): string {
     .kind:hover { border-color: var(--cc-ink); }
     .kind[aria-checked='true'] { background: var(--cc-active); color: var(--cc-active-fg); border-color: var(--cc-ink); }
     .kind[aria-checked='true'] span { color: inherit; opacity: 0.85; }
+    .month { display: grid; grid-template-columns: 1fr 76px; align-items: center; gap: 8px; }
+    .month input { width: 100%; margin: 0; }
+    .month output { font-weight: 600; text-align: right; }
     .toggle { width: 100%; }
     .toggle[aria-pressed='true'] { background: var(--cc-active); color: var(--cc-active-fg); border-color: var(--cc-ink); }
     .toggle[aria-pressed='true'] span { color: inherit; opacity: 0.85; }
@@ -136,6 +149,14 @@ export class DrawHelp {
     { id: 'smoking', label: 'Endormi', description: 'Cratère sombre, un filet de fumée.' },
     { id: 'shield', label: 'Bouclier', description: 'Large et bas, cratère rouge.' },
   ];
+
+  protected readonly month = computed(() => Math.floor(this.facade.yearPhase() * 12) % 12);
+  protected readonly monthName = computed(() => MONTH_NAMES[this.month()]);
+
+  protected setMonth(event: Event): void {
+    const month = Number((event.target as HTMLInputElement).value);
+    this.facade.setYearPhase((month + 0.5) / 12);
+  }
 
   protected text(warning: DrawingWarning): string {
     return warningText(warning, this.facade.settings()?.baseCellKm ?? 1);

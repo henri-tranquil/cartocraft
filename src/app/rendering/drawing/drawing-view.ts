@@ -5,9 +5,10 @@ import { CoveragePyramid, FOREST_VALUE, LAKE_VALUE, RELIEF_VALUE } from './cover
 import { DrawnRiver } from '../../domain/drawing/drawn-river';
 import { drawDrawingGlyphs, glyphZoom, RELIEF_GLYPH_REACH_PX, VOLCANO_GLYPH, VolcanoGlyphSpot } from './drawing-glyphs';
 import { DrawnVolcano } from '../../domain/drawing/drawn-volcano';
-import { snowCapChance } from '../../domain/drawing/drawing-climate';
+import { glyphSnowChance } from '../../domain/drawing/drawing-climate';
 import { buildRiverShapes, inRiver, RiverShapes, waterCoverage } from './river-raster';
-import { zonalRows, ZonalRows } from '../../domain/drawing/drawing-climate';
+import { GroundClimate, zonalGroundClimate, zonalRows, ZonalRows } from '../../domain/drawing/drawing-climate';
+import { DrawingWeather, weatherGroundClimate } from '../../domain/drawing/drawing-weather';
 import { MapSettings } from '../../domain/map/map-settings';
 import { DRAWING_TILE_PX, DrawingTileKey, influenceCells, renderDrawingTile, tileCells } from './drawing-tile';
 
@@ -57,6 +58,9 @@ export class DrawingView {
   /** Ground colour by latitude, and the settings it was computed for. */
   private zonal: ZonalRows;
   private zonalKey: string;
+  /** Weather brought by the winds (null: not computed, the zonal climate stands in). */
+  private weather: DrawingWeather | null = null;
+  private climate: GroundClimate;
 
   constructor(private readonly map: WorldMap) {
     this.pyramid = new CoveragePyramid(map.terrain.drawing);
@@ -65,6 +69,23 @@ export class DrawingView {
     this.lakePyramid = new CoveragePyramid(map.terrain.drawing, LAKE_VALUE);
     this.zonalKey = zonalKeyOf(map.settings);
     this.zonal = zonalRows(map.settings, map.terrain.drawing.heightCells);
+    this.climate = zonalGroundClimate(this.zonal);
+  }
+
+  /** Month shown (season slider): snow comes and goes. */
+  private yearPhase = 0.54;
+
+  /** The winds' weather changed (after an edit or a latitude change), or the month shown: every tile's colours may change. */
+  setWeather(weather: DrawingWeather | null, yearPhase: number): void {
+    if (weather === this.weather && yearPhase === this.yearPhase) return;
+    this.weather = weather;
+    this.yearPhase = yearPhase;
+    this.refreshClimate();
+  }
+
+  private refreshClimate(): void {
+    this.climate = this.weather ? weatherGroundClimate(this.weather, this.map.settings.baseCellKm, this.yearPhase) : zonalGroundClimate(this.zonal);
+    for (const tile of this.cache.values()) tile.stale = true;
   }
 
   /** Latitudes or tilt changed (settings are replaced, not mutated, but compare values to be safe). */
@@ -73,7 +94,7 @@ export class DrawingView {
     if (key === this.zonalKey) return;
     this.zonalKey = key;
     this.zonal = zonalRows(this.map.settings, this.map.terrain.drawing.heightCells);
-    for (const tile of this.cache.values()) tile.stale = true;
+    this.refreshClimate();
   }
 
   /** The drawing changed in these cell rectangles. */
@@ -163,7 +184,7 @@ export class DrawingView {
     const shapes = this.shapesAt(key.level);
     const water = waterCoverage(shapes, key.tx * DRAWING_TILE_PX - 1, key.ty * DRAWING_TILE_PX - 1, DRAWING_TILE_PX + 2);
     renderDrawingTile(
-      { pyramid: this.pyramid, reliefPyramid: this.reliefPyramid, forestPyramid: this.forestPyramid, lakePyramid: this.lakePyramid, zonal: this.zonal, widthCells: grid.widthCells, heightCells: grid.heightCells, seed },
+      { pyramid: this.pyramid, reliefPyramid: this.reliefPyramid, forestPyramid: this.forestPyramid, lakePyramid: this.lakePyramid, climate: this.climate, widthCells: grid.widthCells, heightCells: grid.heightCells, seed },
       key,
       this.pixels.data,
       water,
@@ -186,7 +207,7 @@ export class DrawingView {
     const margin = 3 * this.pxScale;
     drawDrawingGlyphs(tctx, grid, seed, key.level, key.tx * DRAWING_TILE_PX, key.ty * DRAWING_TILE_PX, DRAWING_TILE_PX, this.glyphPxScale(key.level), (x, y) =>
       inRiver(shapes, x, y, margin),
-      this.zonal.warmestC,
+      this.climate,
       this.volcanoSpots(key),
     );
     tctx.restore();
@@ -259,8 +280,8 @@ export class DrawingView {
       const x = v.xKm * pxPerKm;
       const y = v.yKm * pxPerKm;
       if (x < x0 - reachX || x > x0 + DRAWING_TILE_PX + reachX || y < y0 || y > y0 + DRAWING_TILE_PX + reachY) continue;
-      const row = Math.max(0, Math.min(this.zonal.warmestC.length - 1, Math.floor(v.yKm / this.map.settings.baseCellKm)));
-      spots.push({ x, y, snow: snowCapChance(this.zonal.warmestC[row], 2) >= 0.5, kind: v.kind, variant: idVariant(v.id), scale: volcanoScale(pxPerKm, scale, this.pxScale) });
+      const cellKm = this.map.settings.baseCellKm;
+      spots.push({ x, y, snow: glyphSnowChance(this.climate, v.xKm / cellKm, v.yKm / cellKm, 2, true) >= 0.5, kind: v.kind, variant: idVariant(v.id), scale: volcanoScale(pxPerKm, scale, this.pxScale) });
     }
     return spots;
   }

@@ -1,5 +1,5 @@
 import { detectSketchMode, SketchImage, SketchMode, SketchPoint, sketchSeaMask, sketchToAltitude } from '../domain/terrain/sketch';
-import { computed, inject, Injectable, signal } from '@angular/core';
+import { computed, effect, inject, Injectable, signal } from '@angular/core';
 import { Command, MapChange } from '../domain/commands/command';
 import { CommandHistory } from '../domain/commands/command-history';
 import { RenameMapCommand } from '../domain/commands/rename-map-command';
@@ -22,7 +22,7 @@ import { poleOfInaccessibility, ringArea, translateRing } from '../domain/featur
 import { findRiverPoint } from '../domain/hydrology/rivers';
 import { nearestDrawnRiverPoint } from '../domain/drawing/drawn-river';
 import { VolcanoKind } from '../domain/drawing/drawn-volcano';
-import { isLandCode } from '../domain/drawing/drawing-cell';
+import { isLandCode, reliefIndexOf } from '../domain/drawing/drawing-cell';
 import { MapFactory } from '../domain/map/map-factory';
 import { MapSummary } from '../domain/map/map-repository';
 import { BeyondEdge, BeyondEdges, gridSizeCells, MapSettings, validateMapSettings } from '../domain/map/map-settings';
@@ -38,7 +38,7 @@ import { SampleMaps } from './sample-maps';
 import { windAt, WindVector } from '../domain/climate/wind';
 import { ClimateResult, precipitationAtMm, snowDepthAtCm, temperatureAtC } from '../domain/climate/climate-model';
 import { MapStore } from './map-store';
-import { MAP_FILE_CODEC, MAP_REPOSITORY, WORLD_CONVERTER } from './ports';
+import { DRAWING_WEATHER_ENGINE, MAP_FILE_CODEC, MAP_REPOSITORY, WORLD_CONVERTER } from './ports';
 import { EditorTool, ToolContext } from './tools/editor-tool';
 import {
   BrushOptions,
@@ -49,7 +49,10 @@ import {
 import { DrawingBrushOptions, DrawingBrushTool } from './tools/drawing-brush-tool';
 import { RiverDrawTool, RiverEraseTool } from './tools/river-tools';
 import { VolcanoTool } from './tools/volcano-tool';
-import { AirStreamline, drawingAirField, DrawingAirField, traceDrawingWinds } from '../domain/drawing/drawing-winds';
+import { AirStreamline, drawingAirField, DrawingAirField } from '../domain/drawing/drawing-winds';
+import { DrawingWeather, DrawingWeatherResult, sampleWeather, weatherMonthTempC } from '../domain/drawing/drawing-weather';
+import { reliefClassAltitudeM } from '../domain/drawing/drawing-climate';
+import { LAPSE_RATE_C_PER_M } from '../domain/climate/temperature';
 import { RiverSnap } from '../domain/drawing/drawn-river';
 import { checkDrawing, DrawingWarning } from '../domain/drawing/drawing-checks';
 import { ForestKind, ReliefClass } from '../domain/drawing/drawing-cell';
@@ -114,6 +117,7 @@ export class EditorFacade {
   private readonly store = inject(MapStore);
   private readonly repository = inject(MAP_REPOSITORY);
   private readonly converter = inject(WORLD_CONVERTER);
+  private readonly weatherEngine = inject(DRAWING_WEATHER_ENGINE);
   private readonly fileCodec = inject(MAP_FILE_CODEC);
   private readonly autoSave = inject(AutoSave);
   private readonly climate = inject(ClimateService);
@@ -186,6 +190,24 @@ export class EditorFacade {
   private gestureTool: EditorTool | null = null;
   private holdTimer: ReturnType<typeof setInterval> | null = null;
 
+  constructor() {
+    // The winds' weather follows the drawing and the latitudes: recomputed off the main thread after
+    // each finished gesture, undo or latitude change, while the Draw step is shown. Only the latest counts.
+    effect(() => {
+      if (this.workspaceState() !== 'draw') return;
+      const field = this.airField();
+      const mapId = this.store.map()?.id;
+      if (!field || !mapId) return;
+      const generation = ++this.weatherGeneration;
+      this.weatherEngine.compute(field).then(
+        (result) => {
+          if (generation === this.weatherGeneration) this.weatherResultState.set({ mapId, result });
+        },
+        (error: unknown) => console.error('Météo du dessin impossible', error),
+      );
+    });
+  }
+
   readonly hasMap = computed(() => this.store.map() !== null);
   /** Drawing map whose world was not converted since the last drawing edit. */
   readonly worldStale = computed(() => {
@@ -235,18 +257,43 @@ export class EditorFacade {
   readonly windOverlayShown = this.windOverlayShownState.asReadonly();
   /** The winds are drawn (animated) in the Draw step when their overlay is on. */
   readonly windsVisible = computed(() => this.workspaceState() === 'draw' && this.windOverlayShownState());
-  /** The drawing as the air feels it: rebuilt after each finished gesture, undo or latitude change, not during a stroke. Lazy: read only while the winds show. */
+  /** The drawing as the air feels it: rebuilt after each finished gesture, undo or latitude change, not during a stroke. */
   private readonly airField = computed<DrawingAirField | null>(() => {
     this.historyRevision();
     const map = this.store.map();
     const settings = this.settings();
     return map && settings ? drawingAirField(map.terrain.drawing, settings.baseCellKm, settings) : null;
   });
-  /** Streamlines of the computed winds (km). */
-  readonly windFlows = computed<readonly AirStreamline[]>(() => {
-    const field = this.airField();
-    return field ? traceDrawingWinds(field) : [];
+  /** Last weather computed by the engine, with the map it belongs to (a result for another map is ignored). */
+  private readonly weatherResultState = signal<{ readonly mapId: string; readonly result: DrawingWeatherResult } | null>(null);
+  private weatherGeneration = 0;
+  private readonly currentWeather = computed(() => {
+    const state = this.weatherResultState();
+    return state && state.mapId === this.store.map()?.id ? state.result : null;
   });
+  /** Rain and air temperature brought by the winds: the ground colour and the snow of the Draw step (null until computed). */
+  readonly drawingWeather = computed<DrawingWeather | null>(() => this.currentWeather()?.weather ?? null);
+  /**
+   * Draw step, under the pointer: air temperature (month shown, annual mean) brought by the
+   * winds, at the altitude guessed from the relief class; null until the weather is computed.
+   */
+  drawingTemperatureAt(point: CellPoint): { monthC: number; meanC: number } | null {
+    const map = this.store.map();
+    const weather = this.drawingWeather();
+    const x = Math.floor(point.x);
+    const y = Math.floor(point.y);
+    if (!map || !weather || !isInside(map.terrain.drawing, x, y)) return null;
+    const code = getCell(map.terrain.drawing, x, y);
+    const coolingC = isLandCode(code) ? reliefClassAltitudeM(reliefIndexOf(code)) * LAPSE_RATE_C_PER_M : 0;
+    const km = map.settings.baseCellKm;
+    return {
+      monthC: weatherMonthTempC(weather, point.x * km, point.y * km, this.drawingMonthPhase()) - coolingC,
+      meanC: sampleWeather(weather, weather.meanTempC, point.x * km, point.y * km) - coolingC,
+    };
+  }
+
+  /** Streamlines of the computed winds (km). */
+  readonly windFlows = computed<readonly AirStreamline[]>(() => this.currentWeather()?.streamlines ?? []);
   readonly drawingBrush = this.drawingBrushState.asReadonly();
   /** Editable layer of the open map (null: no map). */
   readonly mapSource = computed<MapSource | null>(() => this.store.map()?.source ?? null);
@@ -268,6 +315,8 @@ export class EditorFacade {
   readonly viewMode = this.viewModeState.asReadonly();
   readonly rendered = this.renderedState.asReadonly();
   readonly yearPhase = this.yearPhaseState.asReadonly();
+  /** Draw step: whole months only (the middle of the month of the season slider). */
+  readonly drawingMonthPhase = computed(() => (Math.floor(this.yearPhaseState() * 12) + 0.5) / 12);
   readonly climateStatus = this.climate.status;
   readonly climateDurationMs = this.climate.lastDurationMs;
   readonly hasClimate = computed(() => this.climate.result() !== null);

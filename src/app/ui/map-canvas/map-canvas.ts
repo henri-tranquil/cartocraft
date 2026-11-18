@@ -76,6 +76,9 @@ const RIVER_PICK_PX = 10;
         @if (info.altitudeM !== null) {
           <span class="chip chip--accent" title="Altitude"><cc-icon name="altitude" [size]="9" /> {{ info.altitudeM | number: '1.0-0' }} m</span>
         }
+        @if (info.drawn; as t) {
+          <span class="chip" title="Température estimée de l’air au mois choisi (et moyenne de l’année), d’après les vents, la distance à la mer et l’altitude devinée du relief">{{ t.monthC | number: '1.0-0' }} °C <span class="muted">(moy. {{ t.meanC | number: '1.0-0' }})</span></span>
+        }
         @if (info.temperatureC !== null) {
           <span class="chip" title="Température à la saison affichée">{{ info.temperatureC | number: '1.0-0' }} °C</span>
         }
@@ -103,6 +106,7 @@ const RIVER_PICK_PX = 10;
     .status { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; gap: 6px; pointer-events: none; }
     .chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; background: var(--cc-panel); border: var(--cc-border) solid var(--cc-ink); font-weight: 600; font-size: 11px; font-variant-numeric: tabular-nums; }
     .chip--accent { background: var(--cc-accent); }
+    .muted { font-weight: 500; opacity: 0.7; }
     .scale { margin-left: auto; }
     .fit { position: absolute; top: 8px; right: 8px; height: 26px; padding: 0 10px; --cc-shadow: 2px; }
   `,
@@ -167,13 +171,14 @@ export class MapCanvas {
     const km = map.settings.baseCellKm;
     if (this.facade.workspace() === 'draw') {
       // The altitude is not generated from the drawing yet (step D6): showing it here would mislead.
-      return { xKm: point.x * km, yKm: point.y * km, altitudeM: null, temperatureC: null, precipitationMm: null, snowCm: null, dischargeM3s: null, windLabel: null };
+      const drawn = this.facade.drawingTemperatureAt(point);
+      return { xKm: point.x * km, yKm: point.y * km, altitudeM: null, temperatureC: null, precipitationMm: null, snowCm: null, dischargeM3s: null, windLabel: null, drawn };
     }
     this.facade.yearPhase();
     this.facade.hasClimate();
     const wind = this.facade.windAt(point);
     const windLabel = wind ? `${windFromDirection(wind)} ${Math.hypot(wind.uMs, wind.vMs).toFixed(0)} m/s` : null;
-    return { xKm: point.x * km, yKm: point.y * km, altitudeM, temperatureC: this.facade.temperatureAt(point), precipitationMm: this.facade.precipitationAt(point), snowCm: this.facade.snowAt(point), windLabel, dischargeM3s: this.facade.dischargeAt(point) };
+    return { drawn: null, xKm: point.x * km, yKm: point.y * km, altitudeM, temperatureC: this.facade.temperatureAt(point), precipitationMm: this.facade.precipitationAt(point), snowCm: this.facade.snowAt(point), windLabel, dischargeM3s: this.facade.dischargeAt(point) };
   });
 
   protected readonly visibleWidthKm = computed(() => {
@@ -208,6 +213,8 @@ export class MapCanvas {
       this.lasso();
       this.facade.riverPreview();
       this.facade.windsVisible();
+      this.facade.drawingWeather(); // arrives later, from the weather worker
+      this.facade.drawingMonthPhase();
       this.requestDraw();
     });
 
@@ -497,6 +504,7 @@ export class MapCanvas {
     const dirty = this.facade.takeDirtyDrawingRects();
     if (this.drawingView?.map !== map) this.drawingView = { view: new DrawingView(map), map };
     else this.drawingView.view.invalidate(dirty);
+    this.drawingView.view.setWeather(this.facade.drawingWeather(), this.facade.drawingMonthPhase());
     const pending = this.drawingView.view.draw(ctx, vp, dpr);
     const winds = this.facade.windsVisible();
     if (winds) drawWindFlows(ctx, vp, map.settings.baseCellKm, this.facade.windFlows(), performance.now() / 1000);
