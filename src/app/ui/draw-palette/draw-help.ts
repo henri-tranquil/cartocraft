@@ -8,9 +8,7 @@ import { VolcanoKind } from '../../domain/drawing/drawn-volcano';
 
 const MONTH_NAMES = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 
-const FOREST_NAME = { broadleaf: 'Feuillus', conifer: 'Résineux', tropical: 'Forêt tropicale' } as const;
-
-function warningText(warning: DrawingWarning, cellKm: number): string {
+function warningText(warning: DrawingWarning): string {
   switch (warning.kind) {
     case 'noLand':
       return 'Aucune terre pour l’instant : commence avec l’outil Terre (touche T) et peins un continent.';
@@ -18,19 +16,7 @@ function warningText(warning: DrawingWarning, cellKm: number): string {
       return warning.count === 1
         ? 'Un fleuve s’arrête dans les terres : prolonge-le jusqu’à la mer, un lac ou un autre fleuve.'
         : `${warning.count} fleuves s’arrêtent dans les terres : prolonge-les jusqu’à la mer, un lac ou un autre fleuve.`;
-    case 'forestTooCold':
-    case 'forestTooWarm':
-    case 'forestTooDry': {
-      const name = FOREST_NAME[warning.forest];
-      const where = `vers ${Math.round(Math.abs(warning.latitudeDeg))}° ${warning.latitudeDeg >= 0 ? 'N' : 'S'}`;
-      const why = { forestTooCold: 'trop froid pour ces arbres', forestTooWarm: 'trop chaud pour ces arbres', forestTooDry: 'trop sec pour une forêt' }[warning.kind];
-      return `${name} ${where} : ${why} (~${formatArea(warning.cells * cellKm * cellKm)}).`;
-    }
   }
-}
-
-function formatArea(km2: number): string {
-  return `${Math.max(1, Math.round(km2)).toLocaleString('fr-FR')} km²`;
 }
 
 /** Right panel of the Draw step: what the current tool does, warnings, shortcuts. */
@@ -164,6 +150,6 @@ export class DrawHelp {
   }
 
   protected text(warning: DrawingWarning): string {
-    return warningText(warning, this.facade.settings()?.baseCellKm ?? 1);
+    return warningText(warning);
   }
 }

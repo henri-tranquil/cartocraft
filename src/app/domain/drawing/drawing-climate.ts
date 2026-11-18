@@ -106,6 +106,39 @@ export interface GroundClimate {
   warmestC(xCell: number, yCell: number): number;
   /** The month shown (season slider), at sea level, °C. */
   monthC(xCell: number, yCell: number): number;
+  /** Coldest month at sea level, °C. */
+  coldestC(xCell: number, yCell: number): number;
+}
+
+/**
+ * WHICH TREES GROW HERE. The user paints "forest"; the climate picks the
+ * species (ground temperatures, i.e. already cooled by the altitude):
+ * - conifers (pines, spruces) stand long cold winters and short summers: they
+ *   need a warmest month above ~10 °C (the tree line), and give way to other
+ *   trees where winters are mild;
+ * - broadleaf trees (oaks, beeches) need longer, warmer summers (~14 °C) and
+ *   winters that are not too harsh, and more water;
+ * - palms (tropical forest) die from frost: coldest month above ~12 °C, wet.
+ * Each kind gets a suitability 0..1; where several fit, the forest is MIXED
+ * in proportion (transitions are gradual, as in nature). `density` = best
+ * suitability: the forest thins out where hardly anything grows (too dry,
+ * too cold) and vanishes where nothing does.
+ */
+export interface TreeMix {
+  readonly broadleaf: number;
+  readonly conifer: number;
+  readonly palm: number;
+  /** 0..1: share of the painted forest's trees that actually grow. */
+  readonly density: number;
+}
+
+export function treeMix(warmestC: number, coldestC: number, wetnessPct: number): TreeMix {
+  const conifer = ramp(8, 12, warmestC) * (1 - ramp(6, 16, coldestC)) * ramp(20, 38, wetnessPct);
+  const broadleaf = ramp(12, 16, warmestC) * ramp(-25, -12, coldestC) * (1 - ramp(16, 22, coldestC)) * ramp(25, 42, wetnessPct);
+  const palm = ramp(9, 15, coldestC) * ramp(30, 50, wetnessPct);
+  const total = conifer + broadleaf + palm;
+  if (total <= 0) return { broadleaf: 0, conifer: 0, palm: 0, density: 0 };
+  return { broadleaf: broadleaf / total, conifer: conifer / total, palm: palm / total, density: Math.max(conifer, broadleaf, palm) };
 }
 
 /** Before the winds' weather is computed: by latitude only, and no seasonal snow (the month reads as summer). */
@@ -115,6 +148,7 @@ export function zonalGroundClimate(rows: ZonalRows): GroundClimate {
     wetnessPct: (_x, y) => rows.wetnessPct[row(y)],
     warmestC: (_x, y) => rows.warmestC[row(y)],
     monthC: (_x, y) => rows.warmestC[row(y)],
+    coldestC: (_x, y) => rows.coldestC[row(y)],
   };
 }
 
@@ -153,6 +187,8 @@ export interface ZonalRows {
   readonly wetnessPct: Float32Array;
   /** Per cell row: warmest month at sea level, halfway land / sea (°C). */
   readonly warmestC: Float32Array;
+  /** Per cell row: coldest month, same way (°C). */
+  readonly coldestC: Float32Array;
 }
 
 /** One value per cell row: the latitude varies only along y. */
@@ -162,16 +198,22 @@ export function zonalRows(
 ): ZonalRows {
   const wetnessPct = new Float32Array(heightCells);
   const warmestC = new Float32Array(heightCells);
+  const coldestC = new Float32Array(heightCells);
   for (let y = 0; y < heightCells; y++) {
     const lat = latitudeAtRow(settings, heightCells, y + 0.5);
     wetnessPct[y] = zonalWetnessPct(lat);
     // Halfway between deep inland and open sea: a drawn map has no wind yet to say which.
     const { land, sea } = rowSeaLevelTemperaturesC(lat, settings);
     let warmest = -Infinity;
-    for (let m = 0; m < land.length; m++) warmest = Math.max(warmest, (land[m] + sea[m]) / 2);
+    let coldest = Infinity;
+    for (let m = 0; m < land.length; m++) {
+      warmest = Math.max(warmest, (land[m] + sea[m]) / 2);
+      coldest = Math.min(coldest, (land[m] + sea[m]) / 2);
+    }
     warmestC[y] = warmest;
+    coldestC[y] = coldest;
   }
-  return { wetnessPct, warmestC };
+  return { wetnessPct, warmestC, coldestC };
 }
 
 function interpolate(table: readonly (readonly [number, number])[], x: number): number {

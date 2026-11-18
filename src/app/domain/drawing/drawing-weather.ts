@@ -339,6 +339,7 @@ export function weatherGroundClimate(weather: DrawingWeather, cellKm: number, ye
     wetnessPct: (x, y) => sampleWeather(weather, weather.wetnessPct, x * cellKm, y * cellKm),
     warmestC: (x, y) => sampleWeather(weather, weather.warmestTempC, x * cellKm, y * cellKm),
     monthC: (x, y) => weatherMonthTempC(weather, x * cellKm, y * cellKm, yearPhase),
+    coldestC: (x, y) => sampleWeather(weather, weather.coldestTempC, x * cellKm, y * cellKm),
   };
 }
 

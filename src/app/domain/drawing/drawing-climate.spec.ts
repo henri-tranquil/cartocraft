@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { glyphSnowChance, reliefAltitudeM, reliefCoolingC, snowCapChance, snowCoverChance, snowZoneChance, zonalRows, zonalWetnessPct } from './drawing-climate';
+import { glyphSnowChance, treeMix, reliefAltitudeM, reliefCoolingC, snowCapChance, snowCoverChance, snowZoneChance, zonalRows, zonalWetnessPct } from './drawing-climate';
 
 describe('drawing zonal climate', () => {
   it('is wet at the equator and in mid-latitudes, dry in the subtropics', () => {
@@ -38,8 +38,18 @@ describe('drawing zonal climate', () => {
   it('puts seasonal snow on the ground below about 0 °C, and keeps it longer on summits', () => {
     expect(snowCoverChance(-5)).toBe(1);
     expect(snowCoverChance(5)).toBe(0);
-    const march = { wetnessPct: () => 50, warmestC: () => 20, monthC: () => 3 };
+    const march = { wetnessPct: () => 50, warmestC: () => 20, monthC: () => 3, coldestC: () => -5 };
     expect(glyphSnowChance(march, 0, 0, 0, false)).toBe(0); // plain at 100 m: +2.4 °C
     expect(glyphSnowChance(march, 0, 0, 2, true)).toBe(1); // mid mountain summit at 2000 m: −10 °C
+  });
+
+  it('mixes the trees at the transitions and thins the forest where little grows', () => {
+    const mixed = treeMix(15, -8, 50);
+    expect(mixed.conifer).toBeGreaterThan(0.2);
+    expect(mixed.broadleaf).toBeGreaterThan(0.2);
+    expect(treeMix(27, 24, 80).palm).toBe(1);
+    expect(treeMix(6, -20, 60).density).toBe(0); // above the tree line
+    expect(treeMix(25, 5, 10).density).toBe(0); // desert
+    expect(treeMix(25, 5, 30).density).toBeLessThan(0.7); // steppe: a thin wood
   });
 });

@@ -2,7 +2,7 @@ import { DEFAULT_MAP_SETTINGS } from '../map/map-settings';
 import { createInt16TiledGrid, setCell } from '../terrain/tiled-grid';
 import { encodeDrawingCell, SEA_CELL } from './drawing-cell';
 import { drawingAirField } from './drawing-winds';
-import { checkDrawing } from './drawing-checks';
+import { treeMix } from './drawing-climate';
 import { drawingWeather, DrawingWeather, sampleWeather, weatherGroundClimate, weatherMonthTempC } from './drawing-weather';
 
 const PLAIN = encodeDrawingCell({ land: true, relief: 'plain', forest: 'none' });
@@ -60,18 +60,21 @@ describe('drawing weather', () => {
     expect(weatherMonthTempC(w, 1400, 300, 0.5 / 12)).toBeLessThan(weatherMonthTempC(w, 320, 300, 0.5 / 12) - 3);
   });
 
-  it('checks the forests against this climate: palms in the cold, woods in the desert', () => {
-    const tropical = encodeDrawingCell({ land: true, relief: 'plain', forest: 'tropical' });
-    const g = createInt16TiledGrid(1500, 600, PLAIN, 256);
-    for (let y = 0; y < 600; y++) for (let x = 0; x < 1500; x++) setCell(g, x, y, x < 300 ? SEA_CELL : x < 500 ? tropical : x > 1300 ? FOREST : PLAIN);
-    const settings = { ...DEFAULT_MAP_SETTINGS, latitudeTopDeg: 48, latitudeBottomDeg: 42, baseCellKm: 1 };
-    const w = drawingWeather(drawingAirField(g, 1, settings));
-    const warnings = checkDrawing(g, settings, [], w);
-    expect(warnings).toContainEqual(expect.objectContaining({ kind: 'forestTooCold', forest: 'tropical' }));
-    expect(warnings.some((x) => (x.kind === 'forestTooWarm' || x.kind === 'forestTooDry') && x.forest === 'tropical')).toBe(false);
-    const desert = { ...settings, latitudeTopDeg: 28, latitudeBottomDeg: 22 };
-    const dry = checkDrawing(g, desert, [], drawingWeather(drawingAirField(g, 1, desert)));
-    expect(dry).toContainEqual(expect.objectContaining({ kind: 'forestTooDry', forest: 'broadleaf' }));
+  it('picks the trees from this climate: palms in the hot wet south, conifers in the cold north, few in the desert', () => {
+    const climate = (top: number, bottom: number) => {
+      const settings = { ...DEFAULT_MAP_SETTINGS, latitudeTopDeg: top, latitudeBottomDeg: bottom, baseCellKm: 1 };
+      const g = createInt16TiledGrid(1500, 600, FOREST, 256);
+      for (let y = 0; y < 600; y++) for (let x = 0; x < 300; x++) setCell(g, x, y, SEA_CELL);
+      return weatherGroundClimate(drawingWeather(drawingAirField(g, 1, settings)), 1, 0.5);
+    };
+    const mixAt = (c: ReturnType<typeof climate>, x: number) => treeMix(c.warmestC(x, 300), c.coldestC(x, 300), c.wetnessPct(x, 300));
+    const tropics = mixAt(climate(8, 2), 400);
+    expect(tropics.palm).toBeGreaterThan(0.5);
+    const north = mixAt(climate(64, 58), 800);
+    expect(north.conifer).toBeGreaterThan(0.5);
+    expect(north.palm).toBe(0);
+    const temperate = mixAt(climate(48, 42), 400);
+    expect(temperate.broadleaf).toBeGreaterThan(0.3);
   });
 
   it('puts fronts where a warm and a cold air mass meet, with more rain there', () => {

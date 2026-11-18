@@ -67,20 +67,27 @@ describe('placeReliefGlyphs', () => {
 });
 
 describe('placeTreeGlyphs', () => {
-  it('plants trees in forests only, of the painted kind, and none under the snow', () => {
+  it('plants trees in forests only, chosen by the climate, and none under the snow', () => {
     const grid = drawn([
       [64, 64, 60, { kind: 'land' }],
       [40, 64, 14, { kind: 'forest', forest: 'conifer' }],
-      [90, 64, 14, { kind: 'forest', forest: 'tropical' }],
+      [90, 64, 14, { kind: 'forest', forest: 'conifer' }],
       [90, 64, 6, { kind: 'relief', relief: 'highMountain' }],
     ]);
-    const trees = placeTreeGlyphs(grid, 7, 2, 0, 0, 512, 1);
-    expect(trees.filter((t) => t.forest === 2).length).toBeGreaterThan(50);
-    for (const t of trees) {
-      const cx = t.forest === 2 ? 40 : 90;
-      expect(Math.hypot(t.x / 4 - cx, t.y / 4 - 64)).toBeLessThan(15);
-      if (t.forest === 3) expect(Math.hypot(t.x / 4 - 90, t.y / 4 - 64)).toBeGreaterThan(5);
+    const near = (t: { x: number; y: number }, cx: number) => Math.hypot(t.x / 4 - cx, t.y / 4 - 64) < 15;
+    // No climate yet: broadleaf trees, inside the painted forests, none on the high mountain.
+    const plain = placeTreeGlyphs(grid, 7, 2, 0, 0, 512, 1);
+    expect(plain.length).toBeGreaterThan(50);
+    for (const t of plain) {
+      expect(t.forest).toBe(1);
+      expect(near(t, 40) || near(t, 90)).toBe(true);
+      if (near(t, 90)) expect(Math.hypot(t.x / 4 - 90, t.y / 4 - 64)).toBeGreaterThan(5);
     }
-    expect(trees.some((t) => t.forest === 1)).toBe(false);
+    // Hot and wet, never freezing: palms, whatever kind was painted.
+    const tropics = { wetnessPct: () => 85, warmestC: () => 28, monthC: () => 27, coldestC: () => 25 };
+    expect(placeTreeGlyphs(grid, 7, 2, 0, 0, 512, 1, undefined, tropics).every((t) => t.forest === 3)).toBe(true);
+    // Desert: no trees at all.
+    const desert = { ...tropics, wetnessPct: () => 5 };
+    expect(placeTreeGlyphs(grid, 7, 2, 0, 0, 512, 1, undefined, desert)).toEqual([]);
   });
 });

@@ -1,7 +1,7 @@
 import { fbm, hash2 } from '../../domain/terrain/noise';
 import { Rgb, VINTAGE } from '../style/vintage-style';
 import { CoveragePyramid } from './coverage-pyramid';
-import { GroundClimate, reliefCoolingC, snowCoverChance } from '../../domain/drawing/drawing-climate';
+import { GroundClimate, reliefCoolingC, snowCoverChance, treeMix } from '../../domain/drawing/drawing-climate';
 
 /** Side of a rendered tile, in pixels (device pixels). */
 export const DRAWING_TILE_PX = 256;
@@ -158,6 +158,11 @@ export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, 
       // Same wash as the rendered view: dry → wet, pale where summers are cold (high or far north).
       wets[b * L + a] = smoothstep(VINTAGE.washDryPct, VINTAGE.washWetPct, climate.wetnessPct(x, y));
       colds[b * L + a] = 1 - smoothstep(VINTAGE.washColdC, VINTAGE.washMildC, climate.warmestC(x, y) - reliefCoolingC(reliefs[b * L + a]));
+      // The green wash follows the trees that actually grow (thin forest, pale wash).
+      if (forests[b * L + a] > 0) {
+        const cooling = reliefCoolingC(reliefs[b * L + a]);
+        forests[b * L + a] *= treeMix(climate.warmestC(x, y) - cooling, climate.coldestC(x, y) - cooling, climate.wetnessPct(x, y)).density;
+      }
       snows[b * L + a] = snowCoverChance(climate.monthC(x, y) - reliefCoolingC(reliefs[b * L + a]), climate.wetnessPct(x, y));
     }
   }

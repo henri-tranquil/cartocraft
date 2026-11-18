@@ -1,6 +1,6 @@
 import { forestIndexOf, isLandCode, reliefIndexOf } from '../../domain/drawing/drawing-cell';
 import { hash2 } from '../../domain/terrain/noise';
-import { glyphSnowChance, GroundClimate } from '../../domain/drawing/drawing-climate';
+import { glyphSnowChance, GroundClimate, reliefCoolingC, treeMix } from '../../domain/drawing/drawing-climate';
 import { getCellClamped, Int16TiledGrid } from '../../domain/terrain/tiled-grid';
 import { VINTAGE } from '../style/vintage-style';
 import { VolcanoKind } from '../../domain/drawing/drawn-volcano';
@@ -91,7 +91,7 @@ const SALT_SNOW = 0x4c2b;
 export interface TreeGlyph {
   readonly x: number;
   readonly y: number;
-  /** 1 broadleaf, 2 conifer, 3 tropical. */
+  /** 1 broadleaf, 2 conifer, 3 palm (picked by the climate). */
   readonly forest: number;
   readonly scale: number;
   readonly variant: number;
@@ -100,6 +100,8 @@ export interface TreeGlyph {
 }
 
 const SALT_TREE = 0x3f1d;
+const SALT_DENSITY = 0x71c3;
+const SALT_SPECIES = 0x1e59;
 
 export interface ReliefGlyph {
   readonly x: number;
@@ -197,13 +199,25 @@ export function placeTreeGlyphs(
       const x = (a + 0.5 + (hash2(s ^ SALT_X, a, b) - 0.5) * FOREST_GLYPHS.jitter) * step;
       const y = (b + 0.5 + (hash2(s ^ SALT_Y, a, b) - 0.5) * FOREST_GLYPHS.jitter) * step;
       const code = getCellClamped(drawing, Math.floor(x * cellsPerPx), Math.floor(y * cellsPerPx));
-      const forest = forestIndexOf(code);
-      if (forest === 0 || !isLandCode(code)) continue;
-      if (hash2(s ^ SALT_KEEP, a, b) >= FOREST_GLYPHS.keepByRelief[reliefIndexOf(code)]) continue;
+      if (forestIndexOf(code) === 0 || !isLandCode(code)) continue;
+      const relief = reliefIndexOf(code);
+      if (hash2(s ^ SALT_KEEP, a, b) >= FOREST_GLYPHS.keepByRelief[relief]) continue;
       if (blocked(x, y)) continue;
+      // The climate picks the tree (and thins the forest where little grows); before any
+      // climate is known, a plain broadleaf forest.
+      let forest = 1;
+      if (climate) {
+        const cx = x * cellsPerPx;
+        const cy = y * cellsPerPx;
+        const cooling = reliefCoolingC(relief);
+        const mix = treeMix(climate.warmestC(cx, cy) - cooling, climate.coldestC(cx, cy) - cooling, climate.wetnessPct(cx, cy));
+        if (hash2(s ^ SALT_DENSITY, a, b) >= mix.density) continue;
+        const pick = hash2(s ^ SALT_SPECIES, a, b);
+        forest = pick < mix.conifer ? 2 : pick < mix.conifer + mix.broadleaf ? 1 : 3;
+      }
       const scale = 1 + (hash2(s ^ SALT_SIZE, a, b) - 0.5) * 2 * FOREST_GLYPHS.sizeJitter;
-      // Palms never get snow: a tropical forest in the cold is a warning, not a look.
-      const snow = forest !== 3 && climate !== null && hash2(s ^ SALT_SNOW, a, b) < glyphSnowChance(climate, x * cellsPerPx, y * cellsPerPx, reliefIndexOf(code), false);
+      // Palms never get snow (they only grow where it never freezes).
+      const snow = forest !== 3 && climate !== null && hash2(s ^ SALT_SNOW, a, b) < glyphSnowChance(climate, x * cellsPerPx, y * cellsPerPx, relief, false);
       trees.push({ x: x - originX, y: y - originY, forest, scale, variant: hash2(s ^ SALT_VARIANT, a, b), snow });
     }
   }

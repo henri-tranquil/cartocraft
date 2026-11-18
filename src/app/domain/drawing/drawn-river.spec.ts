@@ -104,7 +104,7 @@ describe('riverFromStroke', () => {
   it('warns about a river ending inland, and picks rivers near the pointer', () => {
     const lost: DrawnRiver = { id: 'lost', pointsKm: [10, 80, 30, 80] };
     expect(riverEnd(lost, [lost], drawing, 1)).toBe('inland');
-    const warnings = checkDrawing(drawing, { latitudeTopDeg: 50, latitudeBottomDeg: 40, baseCellKm: 1 }, [lost]);
+    const warnings = checkDrawing(drawing, { baseCellKm: 1 }, [lost]);
     expect(warnings).toEqual([{ kind: 'riverEndsInland', count: 1 }]);
     expect(riverNear([lost], 20, 82, 3)?.id).toBe('lost');
     expect(riverNear([lost], 20, 90, 3)).toBeNull();

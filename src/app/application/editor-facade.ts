@@ -81,8 +81,8 @@ export type Workspace = 'draw' | 'world';
 export type DrawToolId = 'pan' | 'land' | 'sea' | ReliefClass | 'volcano' | ForestToolId | 'lake' | 'river' | 'riverErase' | 'names';
 /** Draw tools that edit the drawing (the others move the map, or place names). */
 type DrawingEditToolId = Exclude<DrawToolId, 'pan' | 'names'>;
-/** Forest brushes; `clearing` removes the trees. */
-export type ForestToolId = Exclude<ForestKind, 'none'> | 'clearing';
+/** Forest brush (the climate picks the trees); `clearing` removes them. */
+export type ForestToolId = 'forest' | 'clearing';
 
 export const DRAWING_BRUSH_LIMITS = { minRadiusKm: 0.5, maxRadiusKm: 300 } as const;
 
@@ -180,9 +180,8 @@ export class EditorFacade {
       () => this.volcanoKindState(),
     ),
     lake: new DrawingBrushTool('Peindre un lac', { kind: 'lake' }, () => this.drawingBrushState()),
-    broadleaf: this.forestTool('Planter des feuillus', 'broadleaf'),
-    conifer: this.forestTool('Planter des résineux', 'conifer'),
-    tropical: this.forestTool('Planter une forêt tropicale', 'tropical'),
+    // Any forest kind would do: the climate picks the trees at render time (`treeMix`).
+    forest: this.forestTool('Planter une forêt', 'broadleaf'),
     clearing: this.forestTool('Défricher', 'none'),
     river: this.riverTool,
     riverErase: new RiverEraseTool(() => this.kmPerPxState()),
@@ -345,7 +344,7 @@ export class EditorFacade {
   readonly drawingWarnings = computed<readonly DrawingWarning[]>(() => {
     this.historyRevision();
     const map = this.store.map();
-    return map ? checkDrawing(map.terrain.drawing, map.settings, map.rivers, this.drawingWeather()) : [];
+    return map ? checkDrawing(map.terrain.drawing, map.settings, map.rivers) : [];
   });
   readonly undoLabel = computed(() => {
     this.historyRevision();

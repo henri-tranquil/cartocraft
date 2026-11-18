@@ -87,24 +87,10 @@ describe('checkDrawing', () => {
     expect(checkDrawing(grid, latitudes)).toEqual([]);
   });
 
-  it('flags forests painted at an implausible latitude, with where and how much', () => {
+  it('never warns about forests: the climate picks the trees', () => {
     const grid = createInt16TiledGrid(40, 40, SEA_CELL, 32);
     dab(grid, 20, 20, 40, { kind: 'land' });
-    dab(grid, 10, 4, 2, { kind: 'forest', forest: 'tropical' }); // ~54° N
-    dab(grid, 30, 20, 2, { kind: 'forest', forest: 'tropical' }); // ~30° N: just outside the tropics
-    dab(grid, 20, 37, 1, { kind: 'forest', forest: 'conifer' }); // ~4° N, lowland
-    const warnings = checkDrawing(grid, latitudes);
-    expect(warnings.map((w) => [w.kind, 'forest' in w ? w.forest : ''])).toEqual([
-      ['forestTooWarm', 'conifer'],
-      ['forestTooCold', 'tropical'],
-    ]);
-    const cold = warnings[1];
-    if (cold.kind !== 'forestTooCold') throw new Error('unexpected');
-    expect(cold.latitudeDeg).toBeGreaterThan(28);
-    expect(cold.cells).toBeGreaterThan(13);
-
-    // Conifers on mountains near the equator are fine: altitude makes it cold enough.
-    dab(grid, 20, 37, 1, { kind: 'relief', relief: 'midMountain' });
-    expect(checkDrawing(grid, latitudes).some((w) => w.kind === 'forestTooWarm')).toBe(false);
+    dab(grid, 10, 4, 2, { kind: 'forest', forest: 'tropical' });
+    expect(checkDrawing(grid, latitudes)).toEqual([]);
   });
 });
