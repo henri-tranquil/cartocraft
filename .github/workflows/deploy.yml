@@ -26,6 +26,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npx ng lint
+      - run: npx ng test --watch=false
       - run: npx ng build --base-href /cartocraft/
       - uses: actions/upload-pages-artifact@v3
         with:

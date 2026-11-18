@@ -285,7 +285,7 @@ Style **néo-brutalisme sur parchemin**, palette « C1 Encre & ocre » (maquette
 
 ## Déploiement (GitHub Pages)
 
-Dépôt GitHub : **`cartocraft`**. **En ligne depuis le 18/11/2026** : https://henri-tranquil.github.io/cartocraft/ (dépôt passé en public ; workflow `.github/workflows/deploy.yml` : build `--base-href /cartocraft/` puis publication à chaque push sur `main`, build seul, sans tests). L'interface est publiée sur `https://<user>.github.io/cartocraft/` (donc `<repo>` = `cartocraft` ci-dessous, et le préfixe de stockage = `cartocraft`). Les choix techniques doivent rester compatibles avec ça dès maintenant :
+Dépôt GitHub : **`cartocraft`**. **En ligne depuis le 18/11/2026** : https://henri-tranquil.github.io/cartocraft/ (dépôt passé en public ; workflow `.github/workflows/deploy.yml` : build `--base-href /cartocraft/` puis publication à chaque push sur `main`, lint puis tests (délai Vitest porté à 30 s dans `vitest-base.config.mts`, les simulations dépassaient parfois 5 s) avant le build). L'interface est publiée sur `https://<user>.github.io/cartocraft/` (donc `<repo>` = `cartocraft` ci-dessous, et le préfixe de stockage = `cartocraft`). Les choix techniques doivent rester compatibles avec ça dès maintenant :
 
 - **100 % statique, côté client** : aucun backend, aucune API serveur. Tout le calcul se fait dans le navigateur (c'est déjà le cas avec les Workers).
 - **Base href** : build avec `ng build --base-href /<repo>/`. Aucun chemin absolu codé en dur (`/assets/...`) : toujours des chemins relatifs, ou résolus via la base.
