@@ -71,7 +71,8 @@ export function placeForests(input: MountainInput, climate: VintageClimate | nul
  * the lower-right part of the crown is in shade. Broadleaf = round crown on a
  * short trunk; conifer = narrow triangle.
  */
-export function drawTreeGlyph(ctx: Ctx2D, x: number, y: number, s: number, v: number, kind: number): void {
+/** `snow`: white on the needles' tip or on top of the crown (cold regions of the drawing). */
+export function drawTreeGlyph(ctx: Ctx2D, x: number, y: number, s: number, v: number, kind: number, snow = false): void {
   const line = Math.max(0.5, Math.min(1, s / 14));
   ctx.lineWidth = line;
   ctx.strokeStyle = VINTAGE.ink;
@@ -103,6 +104,21 @@ export function drawTreeGlyph(ctx: Ctx2D, x: number, y: number, s: number, v: nu
     ctx.closePath();
     ctx.fillStyle = VINTAGE.needle;
     ctx.fill();
+    if (snow) {
+      // Snowy tip down to ~45 % of the cone, with a ragged lower edge.
+      const k = 0.45;
+      const sy = top + (base - top) * k;
+      const sh = half * k;
+      ctx.beginPath();
+      ctx.moveTo(x, top);
+      ctx.lineTo(x + sh, sy);
+      ctx.lineTo(x + sh * 0.35, sy - s * 0.06);
+      ctx.lineTo(x - sh * 0.2, sy + s * 0.03);
+      ctx.lineTo(x - sh, sy);
+      ctx.closePath();
+      ctx.fillStyle = VINTAGE.snowCap;
+      ctx.fill();
+    }
     ctx.beginPath();
     ctx.moveTo(x, top);
     ctx.lineTo(x + half, base);
@@ -123,6 +139,18 @@ export function drawTreeGlyph(ctx: Ctx2D, x: number, y: number, s: number, v: nu
   ctx.ellipse(cx - r * 0.18, cy - r * 0.16, r * 0.78, r * 0.7, 0, 0, Math.PI * 2);
   ctx.fillStyle = VINTAGE.leaf;
   ctx.fill();
+  if (snow) {
+    // Snow lying on top of the crown: the crown's upper part, clipped to it.
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, r, r * 0.9, 0, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.beginPath();
+    ctx.ellipse(cx - r * 0.1, cy - r * 0.75, r * 1.05, r * 0.55, 0, 0, Math.PI * 2);
+    ctx.fillStyle = VINTAGE.snowCap;
+    ctx.fill();
+    ctx.restore();
+  }
   ctx.beginPath();
   ctx.ellipse(cx, cy, r, r * 0.9, 0, 0, Math.PI * 2);
   ctx.stroke();

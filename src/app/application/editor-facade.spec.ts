@@ -155,7 +155,7 @@ describe('EditorFacade', () => {
   });
 
   it('paints a stroke live and undoes it as a single command', async () => {
-    await facade.createBlankMap(SMALL_MAP, 'A');
+    await facade.createBlankMap(SMALL_MAP, 'A', 'world');
     store.takeDirtyRects();
     facade.setBrush({ radiusKm: 10, strength: 1 });
     facade.pointerDown({ x: 100, y: 100 });
@@ -193,7 +193,7 @@ describe('EditorFacade', () => {
   it('keeps applying while the pointer is held still (airbrush)', async () => {
     vi.useFakeTimers();
     try {
-      await facade.createBlankMap(SMALL_MAP, 'A');
+      await facade.createBlankMap(SMALL_MAP, 'A', 'world');
       facade.setBrush({ radiusKm: 10, strength: 1 });
       facade.pointerDown({ x: 100, y: 100 });
       const afterFirstDab = facade.altitudeAt({ x: 100, y: 100 })!;
@@ -208,8 +208,23 @@ describe('EditorFacade', () => {
     }
   });
 
-  it('does nothing with the pan tool', async () => {
+  it('edits only the map\'s source layer: altitude brushes do nothing on a drawing map, drawing tools on a world map', async () => {
     await facade.createBlankMap(SMALL_MAP, 'A');
+    expect(facade.mapSource()).toBe('drawing');
+    expect(facade.workspace()).toBe('draw');
+    facade.setWorkspace('world');
+    expect(facade.pointerTool()).toBe('pan');
+    facade.pointerDown({ x: 100, y: 100 });
+    facade.pointerUp();
+    expect(facade.undoLabel()).toBeNull();
+    await facade.createBlankMap(SMALL_MAP, 'B', 'world');
+    expect(facade.workspace()).toBe('world');
+    facade.setWorkspace('draw');
+    expect(facade.pointerTool()).toBe('pan');
+  });
+
+  it('does nothing with the pan tool', async () => {
+    await facade.createBlankMap(SMALL_MAP, 'A', 'world');
     facade.selectTool('pan');
     facade.pointerDown({ x: 100, y: 100 });
     facade.pointerUp();
@@ -228,7 +243,7 @@ describe('EditorFacade', () => {
   }, CLIMATE_TEST_TIMEOUT_MS);
 
   it('marks the climate stale after a terrain edit', async () => {
-    await facade.createBlankMap(CLIMATE_MAP, 'A');
+    await facade.createBlankMap(CLIMATE_MAP, 'A', 'world');
     await vi.waitFor(() => expect(facade.climateStatus()).toBe('ready'));
     facade.pointerDown({ x: 30, y: 30 });
     facade.pointerUp();
@@ -236,7 +251,7 @@ describe('EditorFacade', () => {
   }, CLIMATE_TEST_TIMEOUT_MS);
 
   it('only pans while editing is disabled, then restores the relief tool', async () => {
-    await facade.createBlankMap(SMALL_MAP, 'A');
+    await facade.createBlankMap(SMALL_MAP, 'A', 'world');
     facade.setEditingEnabled(false);
     expect(facade.effectiveTool()).toBe('pan');
     facade.pointerDown({ x: 100, y: 100 });

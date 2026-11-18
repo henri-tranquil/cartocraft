@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { reliefAltitudeM, reliefCoolingC, zonalRows, zonalWetnessPct } from './drawing-climate';
+import { reliefAltitudeM, reliefCoolingC, snowCapChance, snowZoneChance, zonalRows, zonalWetnessPct } from './drawing-climate';
 
 describe('drawing zonal climate', () => {
   it('is wet at the equator and in mid-latitudes, dry in the subtropics', () => {
@@ -21,5 +21,17 @@ describe('drawing zonal climate', () => {
     expect(rows.warmestC[69]).toBeGreaterThan(25);
     expect(rows.warmestC[0]).toBeLessThan(10);
     expect(rows.warmestC[0]).toBeLessThan(rows.warmestC[35]);
+  });
+
+  it('puts snow on glyphs where summers are cold, and caps on mid mountains further south', () => {
+    expect(snowZoneChance(25, 0)).toBe(0);
+    expect(snowZoneChance(5, 0)).toBe(1);
+    // Same latitude, higher ground: colder, snowier.
+    expect(snowZoneChance(13, 2)).toBeGreaterThan(snowZoneChance(13, 0));
+    // Mid mountain: no cap in the tropics, a cap at ~55° (warmest ≈ 15 °C at sea level).
+    expect(snowCapChance(29, 2)).toBe(0);
+    expect(snowCapChance(15, 2)).toBe(1);
+    expect(snowCapChance(29, 3)).toBe(1);
+    expect(snowCapChance(5, 1)).toBe(0);
   });
 });

@@ -72,6 +72,7 @@ function monthOf(phase: number): number {
               [attr.aria-label]="side.label"
               [title]="side.label"
               [value]="edges[side.key]"
+              [disabled]="facade.mapSource() !== 'world'"
               (change)="setEdge(side.key, $event)"
             >
               @for (option of edgeOptions; track option.value) {

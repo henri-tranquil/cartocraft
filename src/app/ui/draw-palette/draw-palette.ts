@@ -9,6 +9,9 @@ import { DRAW_GROUPS, PAN_TOOL } from './draw-tools';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [Icon],
   template: `
+    @if (!facade.layerEditable()) {
+      <p class="lock-note">Carte <b>Monde</b> : le dessin est déduit de l’altitude, en lecture seule. Modifie le relief dans l’étape 2 ; seuls les latitudes et les noms se règlent ici.</p>
+    }
     <button
       type="button"
       class="tool pan"
@@ -33,7 +36,7 @@ import { DRAW_GROUPS, PAN_TOOL } from './draw-tools';
             <button
               type="button"
               class="tool"
-              [disabled]="!tool.id"
+              [disabled]="!tool.id || !facade.layerEditable()"
               [attr.aria-pressed]="tool.id !== null && facade.drawTool() === tool.id"
               [title]="tool.label + (tool.key ? ' (' + tool.key + ')' : '') + ' — ' + tool.description"
               (click)="tool.id && facade.selectDrawTool(tool.id)"
@@ -69,6 +72,7 @@ import { DRAW_GROUPS, PAN_TOOL } from './draw-tools';
     kbd { position: absolute; top: 3px; right: 5px; font: 600 9px var(--cc-font-ui); opacity: 0.6; }
     .pan kbd { position: static; }
     .note { margin: 0; font-size: 12px; line-height: 1.4; color: var(--cc-muted); }
+    .lock-note { margin: 0; padding: 6px 8px; font-size: 12px; line-height: 1.4; background: var(--cc-warn-bg); border-left: 4px solid var(--cc-accent); border-radius: 0 6px 6px 0; }
   `,
 })
 export class DrawPalette {

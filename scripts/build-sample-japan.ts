@@ -167,7 +167,7 @@ function japanFeatures(rivers: RiverNetwork): MapFeature[] {
 
 async function main(): Promise<void> {
   const nowIso = new Date().toISOString();
-  const map = MapFactory.blank(settings, { id: SAMPLE_JAPAN.id, name: SAMPLE_JAPAN.name, nowIso });
+  const map = MapFactory.blank(settings, { id: SAMPLE_JAPAN.id, name: SAMPLE_JAPAN.name, nowIso }, 'world');
   const grid = map.terrain.baseAltitudeM;
   const { widthCells: w, heightCells: h } = grid;
   process.stdout.write(`Japon ${w}×${h} cells, fetching tiles `);

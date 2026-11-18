@@ -25,7 +25,7 @@ import { MapSummary } from '../domain/map/map-repository';
 import { BeyondEdge, BeyondEdges, gridSizeCells, MapSettings, validateMapSettings } from '../domain/map/map-settings';
 import { LatitudePin, latitudeAtRow, latitudesFromPins } from '../domain/map/latitude';
 import { UpdateSettingsCommand } from '../domain/commands/update-settings-command';
-import { WorldMap } from '../domain/map/world-map';
+import { MapSource, WorldMap } from '../domain/map/world-map';
 import { MapFormatError } from '../domain/serialization/map-document';
 import { CellPoint } from '../domain/terrain/brushes';
 import { CellRect, getCell, isInside } from '../domain/terrain/tiled-grid';
@@ -205,8 +205,15 @@ export class EditorFacade {
   readonly workspace = this.workspaceState.asReadonly();
   readonly drawTool = this.drawToolState.asReadonly();
   readonly drawingBrush = this.drawingBrushState.asReadonly();
+  /** Editable layer of the open map (null: no map). */
+  readonly mapSource = computed<MapSource | null>(() => this.store.map()?.source ?? null);
+  /** Can the current step's layer be edited? Only the map's source: the other layer is computed. */
+  readonly layerEditable = computed(() => this.mapSource() === (this.workspaceState() === 'draw' ? 'drawing' : 'world'));
   /** What a press on the map does, in either step ('pan' = move the map). */
-  readonly pointerTool = computed<ToolId | DrawToolId>(() => (this.workspaceState() === 'draw' ? this.drawToolState() : this.effectiveTool()));
+  readonly pointerTool = computed<ToolId | DrawToolId>(() => {
+    if (!this.layerEditable()) return 'pan';
+    return this.workspaceState() === 'draw' ? this.drawToolState() : this.effectiveTool();
+  });
   /** Radius of the brush circle drawn under the pointer, or null when the press moves the map. */
   readonly cursorRadiusKm = computed(() => {
     const tool = this.pointerTool();
@@ -277,9 +284,9 @@ export class EditorFacade {
     });
   }
 
-  async createBlankMap(settings: MapSettings, name = 'Nouvelle carte'): Promise<void> {
+  async createBlankMap(settings: MapSettings, name = 'Nouvelle carte', source: MapSource = 'drawing'): Promise<void> {
     await this.run(async () => {
-      const map = MapFactory.blank(settings, { id: crypto.randomUUID(), name, nowIso: new Date().toISOString() });
+      const map = MapFactory.blank(settings, { id: crypto.randomUUID(), name, nowIso: new Date().toISOString() }, source);
       await this.openLoaded(map);
       this.autoSave.markFullSave();
       await this.autoSave.flush();
@@ -548,8 +555,11 @@ export class EditorFacade {
 
   /** Sets what lies beyond one edge of the map. */
   setBeyondEdge(side: keyof BeyondEdges, value: BeyondEdge): void {
-    const edges = this.store.map()?.settings.beyondEdges;
-    if (edges && edges[side] !== value) this.updateClimateSettings({ beyondEdges: { ...edges, [side]: value } });
+    const map = this.store.map();
+    // Climate surroundings belong to the world: set on world maps only.
+    if (map?.source !== 'world') return;
+    const edges = map.settings.beyondEdges;
+    if (edges[side] !== value) this.updateClimateSettings({ beyondEdges: { ...edges, [side]: value } });
   }
 
   // --- Tools ---
@@ -851,6 +861,8 @@ export class EditorFacade {
     this.history.clear();
     this.historyRevision.update((r) => r + 1);
     this.store.setMap(map);
+    // Land on the step where this map is edited.
+    this.workspaceState.set(map.source === 'drawing' ? 'draw' : 'world');
     this.latitudePinsState.set(null);
     this.climate.reset();
     this.climate.invalidate(0);

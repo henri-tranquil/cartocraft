@@ -132,7 +132,11 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
             <h2 class="heading"><cc-icon [name]="activeIcon()" [size]="14" [strokeWidth]="2.4" /> {{ activeShort() }}</h2>
             @switch (activeSection()) {
               @case ('relief') {
-                <cc-tool-panel />
+                @if (facade.mapSource() === 'drawing') {
+                  <p class="hint lock-note">Carte <b>Dessin</b> : l’altitude viendra de la conversion du dessin, elle ne se peint pas ici. Retourne à l’étape 1 pour modifier la carte.</p>
+                } @else {
+                  <cc-tool-panel />
+                }
               }
               @case ('climate') {
                 <cc-climate-panel />
@@ -150,9 +154,9 @@ const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
                 <p class="hint">Vue « carte ancienne », en lecture seule : le clic déplace la carte. Les fleuves et les noms y figurent.</p>
               }
             }
-            <p class="hint world-note">
-              Le monde garde pour l’instant son propre relief : la conversion depuis le dessin arrive bientôt.
-            </p>
+            @if (facade.mapSource() === 'drawing') {
+              <p class="hint world-note">La conversion dessin → monde arrive bientôt : en attendant, le monde garde son ancien relief.</p>
+            }
           </aside>
         }
       }
@@ -303,7 +307,13 @@ export class EditorShell implements OnInit {
   ngOnInit(): void {
     const fromUrl = parseUrlState(location.hash);
     this.applyUrlState(fromUrl);
-    void this.facade.startUp(fromUrl.mapId).finally(() => this.started.set(true));
+    void this.facade
+      .startUp(fromUrl.mapId)
+      .then(() => {
+        // Opening a map lands on its source step; a reload keeps the step the address names.
+        if (fromUrl.workspace) this.facade.setWorkspace(fromUrl.workspace);
+      })
+      .finally(() => this.started.set(true));
   }
 
   /** The user edited the address (or followed a link) without reloading. */
@@ -322,8 +332,7 @@ export class EditorShell implements OnInit {
   }
 
   protected create(request: NewMapRequest): void {
-    this.facade.setWorkspace('draw'); // a new map starts as an empty sea to draw on
-    void this.facade.createBlankMap(request.settings, request.name);
+    void this.facade.createBlankMap(request.settings, request.name, request.source);
   }
 
   protected createFromSketch(request: SketchMapRequest): void {

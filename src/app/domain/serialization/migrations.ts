@@ -77,8 +77,23 @@ const V3_TO_V4: Migration = {
   },
 };
 
+/**
+ * v4 → v5: the map's editable layer (`source`). Bundled samples (ids
+ * 'sample-…', the Japan of real altitudes) are worlds; any other map is a
+ * drawing (Henri's choice when the types were introduced: the user's own
+ * maps were being drawn since D2).
+ */
+const V4_TO_V5: Migration = {
+  fromVersion: 4,
+  migrate(document) {
+    const id = document.header['id'];
+    const source = typeof id === 'string' && id.startsWith('sample-') ? 'world' : 'drawing';
+    return { ...document, header: { ...document.header, formatVersion: 5, source } };
+  },
+};
+
 /** Ordered list. */
-export const MIGRATIONS: readonly Migration[] = [V1_TO_V2, V2_TO_V3, V3_TO_V4];
+export const MIGRATIONS: readonly Migration[] = [V1_TO_V2, V2_TO_V3, V3_TO_V4, V4_TO_V5];
 
 export function migrateToCurrent(
   document: RawMapDocument,

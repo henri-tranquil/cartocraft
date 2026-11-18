@@ -1,5 +1,6 @@
 import { forestIndexOf, isLandCode, reliefIndexOf } from '../../domain/drawing/drawing-cell';
 import { hash2 } from '../../domain/terrain/noise';
+import { snowCapChance, snowZoneChance } from '../../domain/drawing/drawing-climate';
 import { getCellClamped, Int16TiledGrid } from '../../domain/terrain/tiled-grid';
 import { VINTAGE } from '../style/vintage-style';
 import { drawTreeGlyph } from '../vintage-forests';
@@ -64,6 +65,13 @@ const SALT_Y = 0x37c5;
 const SALT_KEEP = 0x5a17;
 const SALT_SIZE = 0x2b3d;
 const SALT_VARIANT = 0x6e0f;
+const SALT_SNOW = 0x4c2b;
+
+/** Warmest month at sea level of the glyph's row (°C), or null when unknown (no snow but high caps). */
+function rowWarmestC(warmestC: Float32Array | null, yCell: number): number | null {
+  if (!warmestC || warmestC.length === 0) return null;
+  return warmestC[Math.max(0, Math.min(warmestC.length - 1, Math.floor(yCell)))];
+}
 
 export interface TreeGlyph {
   readonly x: number;
@@ -72,6 +80,8 @@ export interface TreeGlyph {
   readonly forest: number;
   readonly scale: number;
   readonly variant: number;
+  /** Snow on the crown (snow zone). */
+  readonly snow: boolean;
 }
 
 const SALT_TREE = 0x3f1d;
@@ -83,6 +93,8 @@ export interface ReliefGlyph {
   readonly relief: number;
   readonly scale: number;
   readonly variant: number;
+  /** Snow cap (mountains) or snowy hump (hills). */
+  readonly snow: boolean;
 }
 
 /**
@@ -101,9 +113,11 @@ export function drawDrawingGlyphs(
   pxScale: number,
   /** Lattice points (level px) where nothing grows: river beds. */
   blocked: (x: number, y: number) => boolean = () => false,
+  /** Warmest month at sea level per cell row (°C): where glyphs get snow. */
+  warmestC: Float32Array | null = null,
 ): void {
-  const reliefs = placeReliefGlyphs(drawing, seed, level, originX, originY, tilePx, pxScale, blocked);
-  const trees = placeTreeGlyphs(drawing, seed, level, originX, originY, tilePx, pxScale, blocked);
+  const reliefs = placeReliefGlyphs(drawing, seed, level, originX, originY, tilePx, pxScale, blocked, warmestC);
+  const trees = placeTreeGlyphs(drawing, seed, level, originX, originY, tilePx, pxScale, blocked, warmestC);
   // Merge the two sorted lists by base: back to front.
   let i = 0;
   let j = 0;
@@ -113,13 +127,13 @@ export function drawDrawingGlyphs(
       const size = RELIEF_GLYPHS.sizes[g.relief - 1];
       const w = size.w * g.scale * pxScale;
       const h = size.h * g.scale * pxScale;
-      if (g.relief === 1) drawHillGlyph(ctx, g.x, g.y, w, h, g.variant);
-      else drawMountainGlyph(ctx, g.x, g.y, w, h, g.variant, g.relief === 3);
+      if (g.relief === 1) drawHillGlyph(ctx, g.x, g.y, w, h, g.variant, g.snow);
+      else drawMountainGlyph(ctx, g.x, g.y, w, h, g.variant, g.snow);
     } else {
       const t = trees[j++];
       const s = FOREST_GLYPHS.sizes[t.forest - 1] * t.scale * pxScale;
       if (t.forest === 3) drawPalmGlyph(ctx, t.x, t.y, s, t.variant);
-      else drawTreeGlyph(ctx, t.x, t.y, s, t.variant, t.forest === 2 ? 1 : 0);
+      else drawTreeGlyph(ctx, t.x, t.y, s, t.variant, t.forest === 2 ? 1 : 0, t.snow);
     }
   }
 }
@@ -134,6 +148,7 @@ export function placeTreeGlyphs(
   tilePx: number,
   pxScale: number,
   blocked: (x: number, y: number) => boolean = () => false,
+  warmestC: Float32Array | null = null,
 ): TreeGlyph[] {
   const step = FOREST_GLYPHS.spacingPx * pxScale;
   const reach = Math.max(...FOREST_GLYPHS.sizes) * (1 + FOREST_GLYPHS.sizeJitter) * pxScale;
@@ -154,7 +169,10 @@ export function placeTreeGlyphs(
       if (hash2(s ^ SALT_KEEP, a, b) >= FOREST_GLYPHS.keepByRelief[reliefIndexOf(code)]) continue;
       if (blocked(x, y)) continue;
       const scale = 1 + (hash2(s ^ SALT_SIZE, a, b) - 0.5) * 2 * FOREST_GLYPHS.sizeJitter;
-      trees.push({ x: x - originX, y: y - originY, forest, scale, variant: hash2(s ^ SALT_VARIANT, a, b) });
+      // Palms never get snow: a tropical forest in the cold is a warning, not a look.
+      const warm = rowWarmestC(warmestC, y * cellsPerPx);
+      const snow = forest !== 3 && warm !== null && hash2(s ^ SALT_SNOW, a, b) < snowZoneChance(warm, reliefIndexOf(code));
+      trees.push({ x: x - originX, y: y - originY, forest, scale, variant: hash2(s ^ SALT_VARIANT, a, b), snow });
     }
   }
   return trees.sort((p, q) => p.y - q.y);
@@ -210,6 +228,7 @@ export function placeReliefGlyphs(
   tilePx: number,
   pxScale: number,
   blocked: (x: number, y: number) => boolean = () => false,
+  warmestC: Float32Array | null = null,
 ): ReliefGlyph[] {
   const step = RELIEF_GLYPHS.spacingPx * pxScale;
   const reach = RELIEF_GLYPH_REACH_PX * pxScale;
@@ -231,21 +250,26 @@ export function placeReliefGlyphs(
       if (relief === 1 && hash2(s ^ SALT_KEEP, a, b) > RELIEF_GLYPHS.hillDensity) continue;
       if (blocked(x, y)) continue;
       const scale = 1 + (hash2(s ^ SALT_SIZE, a, b) - 0.5) * 2 * RELIEF_GLYPHS.sizeJitter;
-      glyphs.push({ x: x - originX, y: y - originY, relief, scale, variant: hash2(s ^ SALT_VARIANT, a, b) });
+      const warm = rowWarmestC(warmestC, y * cellsPerPx);
+      const chance = warm === null ? (relief === 3 ? 1 : 0) : relief === 1 ? snowZoneChance(warm, relief) : snowCapChance(warm, relief);
+      const snow = hash2(s ^ SALT_SNOW, a, b) < chance;
+      glyphs.push({ x: x - originX, y: y - originY, relief, scale, variant: hash2(s ^ SALT_VARIANT, a, b), snow });
     }
   }
   return glyphs.sort((p, q) => p.y - q.y);
 }
 
 /** A low rounded hump, outlined on top, a few hatches on the shaded (east) side. */
-export function drawHillGlyph(ctx: Ctx2D, x: number, y: number, w: number, h: number, v: number): void {
+export function drawHillGlyph(ctx: Ctx2D, x: number, y: number, w: number, h: number, v: number, snow = false): void {
   const top = y - h * (1.6 + v * 0.4);
   const crestX = x + (v - 0.5) * w * 0.2;
   ctx.beginPath();
   ctx.moveTo(x - w / 2, y);
   ctx.quadraticCurveTo(crestX, top, x + w / 2, y);
   const g = ctx.createLinearGradient(0, top, 0, y);
-  g.addColorStop(0, VINTAGE.mountainLit);
+  // Snowy hill: white on top, the same fade to the ground.
+  g.addColorStop(0, snow ? VINTAGE.snowCap : VINTAGE.mountainLit);
+  if (snow) g.addColorStop(0.5, VINTAGE.snowCap);
   g.addColorStop(1, 'rgb(0 0 0 / 0)');
   ctx.fillStyle = g;
   ctx.fill();

@@ -3,7 +3,16 @@ import { MapFeature } from '../features/map-feature';
 import { Int16TiledGrid } from '../terrain/tiled-grid';
 import { MapSettings } from './map-settings';
 
-export const CURRENT_FORMAT_VERSION = 4;
+export const CURRENT_FORMAT_VERSION = 5;
+
+/**
+ * Which layer of the map is EDITABLE (chosen at creation, never changed):
+ * - 'drawing': the user draws; the world (altitude) is converted from it, read-only.
+ * - 'world': the user edits altitudes (brushes, real data); the drawing is derived, read-only.
+ * Names and latitudes are editable in both.
+ */
+export type MapSource = 'drawing' | 'world';
+export const MAP_SOURCES: readonly MapSource[] = ['drawing', 'world'];
 
 export interface TerrainData {
   /** Base altitude grid, in metres. High-res touch-up tiles come in step 8. */
@@ -36,6 +45,7 @@ export interface WorldMap {
   readonly id: string;
   name: string;
   readonly formatVersion: number;
+  readonly source: MapSource;
   /** Mutable: replaced as a whole by UpdateSettingsCommand. */
   settings: MapSettings;
   readonly terrain: TerrainData;

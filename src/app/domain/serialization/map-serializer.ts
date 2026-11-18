@@ -2,7 +2,7 @@ import { parseFeatures } from './feature-codec';
 import { DrawnRiver } from '../drawing/drawn-river';
 import { MapFeature } from '../features/map-feature';
 import { BEYOND_EDGE_VALUES, BeyondEdge, MapSettings, validateMapSettings } from '../map/map-settings';
-import { CURRENT_FORMAT_VERSION, WorldMap } from '../map/world-map';
+import { CURRENT_FORMAT_VERSION, MAP_SOURCES, MapSource, WorldMap } from '../map/world-map';
 import { DEFAULT_TILE_SIZE, Int16TiledGrid } from '../terrain/tiled-grid';
 import { int16GridFromBytes, int16GridToBytes } from './grid-codec';
 import { isRecord, MapFormatError, RawMapDocument } from './map-document';
@@ -23,6 +23,7 @@ export interface MapHeader {
   readonly formatVersion: number;
   readonly id: string;
   readonly name: string;
+  readonly source: MapSource;
   readonly settings: MapSettings;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -39,6 +40,7 @@ export function mapToHeader(map: WorldMap): MapHeader {
     formatVersion: CURRENT_FORMAT_VERSION,
     id: map.id,
     name: map.name,
+    source: map.source,
     settings: map.settings,
     createdAt: map.createdAt,
     updatedAt: map.updatedAt,
@@ -75,6 +77,7 @@ export function mapFromDocument(
     id: header.id,
     name: header.name,
     formatVersion: CURRENT_FORMAT_VERSION,
+    source: header.source,
     settings: header.settings,
     terrain: { baseAltitudeM: baseGrid, drawing },
     features: [...header.features],
@@ -165,6 +168,7 @@ function parseHeader(header: Readonly<Record<string, unknown>>): MapHeader {
     formatVersion: CURRENT_FORMAT_VERSION,
     id: requireString(header, 'id'),
     name: requireString(header, 'name'),
+    source: parseSource(header['source']),
     settings: parseSettings(header['settings']),
     createdAt: requireString(header, 'createdAt'),
     updatedAt: requireString(header, 'updatedAt'),
@@ -172,6 +176,12 @@ function parseHeader(header: Readonly<Record<string, unknown>>): MapHeader {
     features: parseFeatures(header['features']),
     rivers: parseRivers(header['rivers']),
   };
+}
+
+function parseSource(value: unknown): MapSource {
+  const source = MAP_SOURCES.find((s) => s === value);
+  if (!source) throw new MapFormatError('Type de carte (dessin ou monde) absent ou invalide.');
+  return source;
 }
 
 function parseRivers(value: unknown): DrawnRiver[] {

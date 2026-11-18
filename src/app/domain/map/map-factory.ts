@@ -2,7 +2,7 @@ import { drawingFromAltitudes } from '../drawing/drawing-from-altitudes';
 import { SEA_CELL } from '../drawing/drawing-cell';
 import { createInt16TiledGrid, fromRowMajor } from '../terrain/tiled-grid';
 import { gridSizeCells, MapSettings, validateMapSettings } from './map-settings';
-import { CURRENT_FORMAT_VERSION, WorldMap } from './world-map';
+import { CURRENT_FORMAT_VERSION, MapSource, WorldMap } from './world-map';
 
 /** Altitude of a blank map: a shallow sea the user raises land from. */
 export const BLANK_ALTITUDE_M = -200;
@@ -22,7 +22,8 @@ export class InvalidMapSettingsError extends Error {
 }
 
 export const MapFactory = {
-  blank(settings: MapSettings, identity: MapIdentity): WorldMap {
+  /** An empty sea, drawn on by default; a 'world' map is raised with the altitude brushes. */
+  blank(settings: MapSettings, identity: MapIdentity, source: MapSource = 'drawing'): WorldMap {
     const errors = validateMapSettings(settings);
     if (errors.length > 0) throw new InvalidMapSettingsError(errors);
     const { widthCells, heightCells } = gridSizeCells(settings);
@@ -30,6 +31,7 @@ export const MapFactory = {
       id: identity.id,
       name: identity.name,
       formatVersion: CURRENT_FORMAT_VERSION,
+      source,
       settings,
       terrain: {
         baseAltitudeM: createInt16TiledGrid(widthCells, heightCells, BLANK_ALTITUDE_M),
@@ -41,9 +43,9 @@ export const MapFactory = {
       updatedAt: identity.nowIso,
     };
   },
-  /** A map whose base altitudes come from a row-major array (sketch import); its drawing is guessed from them. */
+  /** A 'world' map whose base altitudes come from a row-major array (sketch import); its drawing is guessed from them. */
   fromAltitudes(settings: MapSettings, identity: MapIdentity, altitudeM: Int16Array): WorldMap {
-    const map = MapFactory.blank(settings, identity);
+    const map = MapFactory.blank(settings, identity, 'world');
     const { widthCells: w, heightCells: h } = map.terrain.baseAltitudeM;
     if (altitudeM.length !== w * h) throw new Error('Altitude array does not match the grid size');
     return {

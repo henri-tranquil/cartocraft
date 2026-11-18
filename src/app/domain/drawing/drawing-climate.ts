@@ -57,6 +57,43 @@ export function reliefCoolingC(reliefValue: number): number {
   return reliefAltitudeM(reliefValue) * LAPSE_RATE_C_PER_M;
 }
 
+/**
+ * SNOW ON THE GLYPHS. Chances (0..1), so the edge of a snowy area is a
+ * gradual mix of white and green glyphs rather than a sharp line.
+ *
+ * - Snow zone: summers so cool (warmest month at the ground) that winters are
+ *   long and snowy: trees, hills and mountains all wear snow. Ramp chosen to
+ *   overlap the pale ground wash (4 → 11 °C), slightly wider.
+ * - Snow cap of a mid mountain outside the snow zone: its summit (~2000 m)
+ *   stays cold enough in summer to keep snow (~50° and beyond on Earth).
+ */
+export const SNOW_ZONE_WARMEST_C = { full: 9, none: 13 } as const;
+export const SNOW_CAP_WARMEST_C = { full: 3, none: 7 } as const;
+/** Altitude of a glyph's summit, by relief class index (1 hills, 2 mid, 3 high mountain). */
+export const RELIEF_SUMMIT_M = [0, 500, 2000, 3500] as const;
+/** Ground altitude of a relief class index (0 plain … 3 high mountain): the class value of RELIEF_ALTITUDE_M. */
+export function reliefClassAltitudeM(reliefIndex: number): number {
+  return reliefAltitudeM(reliefIndex / 3);
+}
+
+/** Chance that a glyph on ground of this relief class lies in the snow zone. */
+export function snowZoneChance(warmestSeaLevelC: number, reliefIndex: number): number {
+  const t = warmestSeaLevelC - reliefClassAltitudeM(reliefIndex) * LAPSE_RATE_C_PER_M;
+  return 1 - ramp(SNOW_ZONE_WARMEST_C.full, SNOW_ZONE_WARMEST_C.none, t);
+}
+
+/** Chance that a mountain glyph (relief index 2 or 3) has a snow cap. High mountains always do. */
+export function snowCapChance(warmestSeaLevelC: number, reliefIndex: number): number {
+  if (reliefIndex >= 3) return 1;
+  if (reliefIndex < 2) return 0;
+  const summit = warmestSeaLevelC - RELIEF_SUMMIT_M[reliefIndex] * LAPSE_RATE_C_PER_M;
+  return Math.max(snowZoneChance(warmestSeaLevelC, reliefIndex), 1 - ramp(SNOW_CAP_WARMEST_C.full, SNOW_CAP_WARMEST_C.none, summit));
+}
+
+function ramp(a: number, b: number, x: number): number {
+  return x <= a ? 0 : x >= b ? 1 : (x - a) / (b - a);
+}
+
 export interface ZonalRows {
   /** Per cell row: zonal wetness (%). */
   readonly wetnessPct: Float32Array;

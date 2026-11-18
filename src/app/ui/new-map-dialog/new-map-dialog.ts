@@ -8,10 +8,12 @@ import {
   viewChild,
 } from '@angular/core';
 import { DEFAULT_MAP_SETTINGS, gridSizeCells, MapSettings, validateMapSettings } from '../../domain/map/map-settings';
+import { MapSource } from '../../domain/map/world-map';
 
 export interface NewMapRequest {
   readonly name: string;
   readonly settings: MapSettings;
+  readonly source: MapSource;
 }
 
 type NumericField = keyof MapSettings;
@@ -46,6 +48,19 @@ const FIELDS: readonly FieldDef[] = [
           <input [value]="name()" (input)="name.set(textValue($event))" required />
         </label>
 
+        <fieldset class="source">
+          <legend>On modifie</legend>
+          <label title="Tu dessines terres, relief, forêts et fleuves ; le monde (altitudes) en sera déduit.">
+            <input type="radio" name="source" value="drawing" [checked]="source() === 'drawing'" (change)="source.set('drawing')" />
+            <span><b>le dessin</b> (le monde en sera déduit)</span>
+          </label>
+          <label title="Tu sculptes directement les altitudes ; le dessin en sera déduit.">
+            <input type="radio" name="source" value="world" [checked]="source() === 'world'" (change)="source.set('world')" />
+            <span><b>le monde</b> (altitudes ; le dessin en sera déduit)</span>
+          </label>
+          <small>Choix définitif pour cette carte.</small>
+        </fieldset>
+
         @for (field of fields; track field.key) {
           <label class="field">
             <span>{{ field.label }}</span>
@@ -58,7 +73,7 @@ const FIELDS: readonly FieldDef[] = [
         }
 
         <p class="summary">Grille : {{ grid().widthCells }} × {{ grid().heightCells }} cellules</p>
-        <p class="note">Relief : vierge (mer peu profonde). La génération procédurale viendra avec le relief.</p>
+        <p class="note">Départ : une mer vide. La génération procédurale viendra plus tard.</p>
 
         @if (errors().length > 0) {
           <ul class="errors" role="alert">
@@ -84,6 +99,10 @@ const FIELDS: readonly FieldDef[] = [
     .field input:focus-visible { outline: 2px solid var(--cc-accent); outline-offset: 1px; }
     .field .cc-btn { width: 28px; height: 28px; --cc-shadow: 2px; }
     .summary { font-weight: 700; }
+    .source { display: grid; gap: 4px; margin: 4px 0 8px; padding: 6px 10px; border: var(--cc-border) solid var(--cc-ink); }
+    .source legend { font-weight: 700; padding: 0 4px; }
+    .source label { display: flex; gap: 6px; align-items: center; }
+    .source small { color: var(--cc-muted); }
     .note { color: var(--cc-muted); font-style: italic; font-size: 0.9em; }
     .errors { color: var(--cc-danger); font-weight: 700; }
     .actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 12px; }
@@ -95,6 +114,7 @@ export class NewMapDialog {
   protected readonly fields = FIELDS;
   protected readonly name = signal('Nouvelle carte');
   protected readonly settings = signal<MapSettings>(DEFAULT_MAP_SETTINGS);
+  protected readonly source = signal<MapSource>('drawing');
   protected readonly errors = computed(() => validateMapSettings(this.settings()));
   protected readonly grid = computed(() =>
     this.errors().length === 0 ? gridSizeCells(this.settings()) : { widthCells: '–', heightCells: '–' },
@@ -105,6 +125,7 @@ export class NewMapDialog {
   open(): void {
     this.name.set('Nouvelle carte');
     this.settings.set({ ...DEFAULT_MAP_SETTINGS, seed: randomSeed() });
+    this.source.set('drawing');
     this.dialog().nativeElement.showModal();
   }
 
@@ -129,7 +150,7 @@ export class NewMapDialog {
   protected submit(event: Event): void {
     event.preventDefault();
     if (this.errors().length > 0 || this.name().trim() === '') return;
-    this.create.emit({ name: this.name().trim(), settings: this.settings() });
+    this.create.emit({ name: this.name().trim(), settings: this.settings(), source: this.source() });
     this.close();
   }
 }

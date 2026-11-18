@@ -92,6 +92,17 @@ describe('migrations', () => {
     expect(getCell(restored.terrain.drawing, 100, 100)).toBe(0);
   });
 
+  it('v4 → v5 makes bundled samples worlds and every other map a drawing; the type round-trips', () => {
+    const current = mapToDocument(sampleMap());
+    const v4Header = { ...current.header };
+    delete v4Header['source'];
+    const v4 = (id: string): RawMapDocument => ({ header: { ...v4Header, formatVersion: 4, id }, blocks: current.blocks });
+    expect(mapFromDocument(v4('sample-japon')).source).toBe('world');
+    expect(mapFromDocument(v4('m1')).source).toBe('drawing');
+    const world = MapFactory.blank({ ...DEFAULT_MAP_SETTINGS, widthKm: 50, heightKm: 50 }, { id: 'w', name: 'W', nowIso: '2026-01-01T00:00:00.000Z' }, 'world');
+    expect(mapFromDocument(mapToDocument(world)).source).toBe('world');
+  });
+
   it('refuses files newer than supported, or with a gap in the chain', () => {
     expect(() => migrateToCurrent({ ...doc, header: { formatVersion: 9 } }, [], 3)).toThrow(/plus récente/);
     expect(() => migrateToCurrent(doc, [v2ToV3], 3)).toThrow(MapFormatError);

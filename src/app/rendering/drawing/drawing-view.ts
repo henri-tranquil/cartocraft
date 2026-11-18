@@ -178,6 +178,7 @@ export class DrawingView {
     const margin = 3 * this.pxScale;
     drawDrawingGlyphs(tctx, grid, seed, key.level, key.tx * DRAWING_TILE_PX, key.ty * DRAWING_TILE_PX, DRAWING_TILE_PX, this.glyphPxScale(key.level), (x, y) =>
       inRiver(shapes, x, y, margin),
+      this.zonal.warmestC,
     );
     tctx.restore();
     tile.stale = false;
