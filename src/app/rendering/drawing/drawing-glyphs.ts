@@ -1,7 +1,8 @@
-import { isLandCode, reliefIndexOf } from '../../domain/drawing/drawing-cell';
+import { forestIndexOf, isLandCode, reliefIndexOf } from '../../domain/drawing/drawing-cell';
 import { hash2 } from '../../domain/terrain/noise';
 import { getCellClamped, Int16TiledGrid } from '../../domain/terrain/tiled-grid';
 import { VINTAGE } from '../style/vintage-style';
+import { drawTreeGlyph } from '../vintage-forests';
 import { Ctx2D, drawMountainGlyph } from '../vintage-mountains';
 
 /**
@@ -29,6 +30,21 @@ export const RELIEF_GLYPHS = {
 } as const;
 
 /**
+ * Tree pictograms of forest zones: a denser lattice of smaller glyphs, so a
+ * forest reads as a mass of crowns. Mountains are drawn among them, sorted
+ * by their base: a peak stands in front of the trees behind it.
+ */
+export const FOREST_GLYPHS = {
+  spacingPx: 8,
+  jitter: 1,
+  /** Tree height (CSS px) per kind: broadleaf, conifer, tropical. */
+  sizes: [11, 12, 12],
+  sizeJitter: 0.2,
+  /** Fraction of trees kept per relief class: woods thin out on mountains and stop below the snow. */
+  keepByRelief: [1, 0.85, 0.35, 0],
+} as const;
+
+/**
  * Glyph size factor at a zoom level. Constant-size glyphs turn a close-up
  * range into a uniform field of tiny peaks; growing them as fast as the map
  * shows only a few giants. In between: size ∝ zoom^0.45, measured from the
@@ -49,6 +65,17 @@ const SALT_KEEP = 0x5a17;
 const SALT_SIZE = 0x2b3d;
 const SALT_VARIANT = 0x6e0f;
 
+export interface TreeGlyph {
+  readonly x: number;
+  readonly y: number;
+  /** 1 broadleaf, 2 conifer, 3 tropical. */
+  readonly forest: number;
+  readonly scale: number;
+  readonly variant: number;
+}
+
+const SALT_TREE = 0x3f1d;
+
 export interface ReliefGlyph {
   readonly x: number;
   readonly y: number;
@@ -59,11 +86,11 @@ export interface ReliefGlyph {
 }
 
 /**
- * Draws the relief glyphs whose footprint touches the tile whose top-left
- * pixel is (originX, originY) at `level` (2^level px per cell), back to
- * front. `pxScale` = device pixels per CSS px.
+ * Draws the relief and tree glyphs whose footprint touches the tile whose
+ * top-left pixel is (originX, originY) at `level` (2^level px per cell),
+ * back to front. `pxScale` = device pixels per CSS px.
  */
-export function drawReliefGlyphs(
+export function drawDrawingGlyphs(
   ctx: Ctx2D,
   drawing: Int16TiledGrid,
   seed: number,
@@ -73,12 +100,99 @@ export function drawReliefGlyphs(
   tilePx: number,
   pxScale: number,
 ): void {
-  for (const g of placeReliefGlyphs(drawing, seed, level, originX, originY, tilePx, pxScale)) {
-    const size = RELIEF_GLYPHS.sizes[g.relief - 1];
-    const w = size.w * g.scale * pxScale;
-    const h = size.h * g.scale * pxScale;
-    if (g.relief === 1) drawHillGlyph(ctx, g.x, g.y, w, h, g.variant);
-    else drawMountainGlyph(ctx, g.x, g.y, w, h, g.variant, g.relief === 3);
+  const reliefs = placeReliefGlyphs(drawing, seed, level, originX, originY, tilePx, pxScale);
+  const trees = placeTreeGlyphs(drawing, seed, level, originX, originY, tilePx, pxScale);
+  // Merge the two sorted lists by base: back to front.
+  let i = 0;
+  let j = 0;
+  while (i < reliefs.length || j < trees.length) {
+    if (j >= trees.length || (i < reliefs.length && reliefs[i].y <= trees[j].y)) {
+      const g = reliefs[i++];
+      const size = RELIEF_GLYPHS.sizes[g.relief - 1];
+      const w = size.w * g.scale * pxScale;
+      const h = size.h * g.scale * pxScale;
+      if (g.relief === 1) drawHillGlyph(ctx, g.x, g.y, w, h, g.variant);
+      else drawMountainGlyph(ctx, g.x, g.y, w, h, g.variant, g.relief === 3);
+    } else {
+      const t = trees[j++];
+      const s = FOREST_GLYPHS.sizes[t.forest - 1] * t.scale * pxScale;
+      if (t.forest === 3) drawPalmGlyph(ctx, t.x, t.y, s, t.variant);
+      else drawTreeGlyph(ctx, t.x, t.y, s, t.variant, t.forest === 2 ? 1 : 0);
+    }
+  }
+}
+
+/** The trees of one tile, sorted back to front, positions relative to the tile's top-left pixel. */
+export function placeTreeGlyphs(
+  drawing: Int16TiledGrid,
+  seed: number,
+  level: number,
+  originX: number,
+  originY: number,
+  tilePx: number,
+  pxScale: number,
+): TreeGlyph[] {
+  const step = FOREST_GLYPHS.spacingPx * pxScale;
+  const reach = Math.max(...FOREST_GLYPHS.sizes) * (1 + FOREST_GLYPHS.sizeJitter) * pxScale;
+  const cellsPerPx = 1 / 2 ** level;
+  const a0 = Math.floor((originX - reach) / step);
+  const a1 = Math.ceil((originX + tilePx + reach) / step);
+  const b0 = Math.floor(originY / step) - 1;
+  const b1 = Math.ceil((originY + tilePx + reach) / step);
+  const trees: TreeGlyph[] = [];
+  const s = seed ^ (level * 0x9e37) ^ SALT_TREE;
+  for (let b = b0; b <= b1; b++) {
+    for (let a = a0; a <= a1; a++) {
+      const x = (a + 0.5 + (hash2(s ^ SALT_X, a, b) - 0.5) * FOREST_GLYPHS.jitter) * step;
+      const y = (b + 0.5 + (hash2(s ^ SALT_Y, a, b) - 0.5) * FOREST_GLYPHS.jitter) * step;
+      const code = getCellClamped(drawing, Math.floor(x * cellsPerPx), Math.floor(y * cellsPerPx));
+      const forest = forestIndexOf(code);
+      if (forest === 0 || !isLandCode(code)) continue;
+      if (hash2(s ^ SALT_KEEP, a, b) >= FOREST_GLYPHS.keepByRelief[reliefIndexOf(code)]) continue;
+      const scale = 1 + (hash2(s ^ SALT_SIZE, a, b) - 0.5) * 2 * FOREST_GLYPHS.sizeJitter;
+      trees.push({ x: x - originX, y: y - originY, forest, scale, variant: hash2(s ^ SALT_VARIANT, a, b) });
+    }
+  }
+  return trees.sort((p, q) => p.y - q.y);
+}
+
+/** A palm: leaning trunk and a crown of drooping fronds (tropical forest). */
+export function drawPalmGlyph(ctx: Ctx2D, x: number, y: number, s: number, v: number): void {
+  const lean = (v - 0.5) * s * 0.35;
+  const topX = x + lean;
+  const topY = y - s * 0.78;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = VINTAGE.trunk;
+  ctx.lineWidth = Math.max(0.6, s / 12);
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.quadraticCurveTo(x + lean * 0.2, y - s * 0.45, topX, topY);
+  ctx.stroke();
+  // Fronds: thin leaves bent down, shaded ones (east) first.
+  const line = Math.max(0.35, Math.min(0.7, s / 20));
+  for (const [angle, shade] of [
+    [-0.25, true],
+    [0.35, true],
+    [Math.PI + 0.25, false],
+    [Math.PI - 0.35, false],
+    [-Math.PI / 2, false],
+  ] as const) {
+    const len = s * (0.5 + 0.1 * v);
+    const tipX = topX + Math.cos(angle) * len;
+    const tipY = topY + Math.sin(angle) * len * 0.55 + len * 0.35;
+    const midX = topX + Math.cos(angle) * len * 0.55;
+    const midY = topY + Math.sin(angle) * len * 0.55 - len * 0.12;
+    const width = len * 0.24;
+    ctx.beginPath();
+    ctx.moveTo(topX, topY);
+    ctx.quadraticCurveTo(midX, midY - width, tipX, tipY);
+    ctx.quadraticCurveTo(midX, midY + width, topX, topY);
+    ctx.fillStyle = shade ? VINTAGE.palmShade : VINTAGE.palm;
+    ctx.fill();
+    ctx.strokeStyle = VINTAGE.ink;
+    ctx.lineWidth = line;
+    ctx.stroke();
   }
 }
 

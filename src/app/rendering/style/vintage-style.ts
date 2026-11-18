@@ -80,4 +80,6 @@ export const VINTAGE = {
   needle: 'rgb(74 106 72)',
   needleShade: 'rgb(46 74 50)',
   trunk: 'rgb(96 70 44)',
+  palm: 'rgb(96 146 72)',
+  palmShade: 'rgb(60 108 56)',
 } as const;

@@ -1,3 +1,4 @@
+import { Ctx2D } from './vintage-mountains';
 import { fbm, hash2 } from '../domain/terrain/noise';
 import { VINTAGE } from './style/vintage-style';
 import { VintageClimate } from './vintage-climate';
@@ -70,7 +71,7 @@ export function placeForests(input: MountainInput, climate: VintageClimate | nul
  * the lower-right part of the crown is in shade. Broadleaf = round crown on a
  * short trunk; conifer = narrow triangle.
  */
-export function drawTreeGlyph(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, v: number, kind: number): void {
+export function drawTreeGlyph(ctx: Ctx2D, x: number, y: number, s: number, v: number, kind: number): void {
   const line = Math.max(0.5, Math.min(1, s / 14));
   ctx.lineWidth = line;
   ctx.strokeStyle = VINTAGE.ink;

@@ -3,9 +3,25 @@ import { EditorFacade } from '../../application/editor-facade';
 import { DrawingWarning } from '../../domain/drawing/drawing-checks';
 import { drawToolDef } from './draw-tools';
 
-const WARNING_TEXT: Record<DrawingWarning['kind'], string> = {
-  noLand: 'Aucune terre pour l’instant : commence avec l’outil Terre (touche T) et peins un continent.',
-};
+const FOREST_NAME = { broadleaf: 'Feuillus', conifer: 'Résineux', tropical: 'Forêt tropicale' } as const;
+
+function warningText(warning: DrawingWarning, cellKm: number): string {
+  switch (warning.kind) {
+    case 'noLand':
+      return 'Aucune terre pour l’instant : commence avec l’outil Terre (touche T) et peins un continent.';
+    case 'forestTooCold':
+    case 'forestTooWarm': {
+      const name = FOREST_NAME[warning.forest];
+      const where = `vers ${Math.round(Math.abs(warning.latitudeDeg))}° ${warning.latitudeDeg >= 0 ? 'N' : 'S'}`;
+      const why = warning.kind === 'forestTooCold' ? 'trop froid pour ces arbres' : 'trop chaud en plaine pour ces arbres';
+      return `${name} ${where} : ${why} (~${formatArea(warning.cells * cellKm * cellKm)}).`;
+    }
+  }
+}
+
+function formatArea(km2: number): string {
+  return `${Math.max(1, Math.round(km2)).toLocaleString('fr-FR')} km²`;
+}
 
 /** Right panel of the Draw step: what the current tool does, warnings, shortcuts. */
 @Component({
@@ -23,7 +39,7 @@ const WARNING_TEXT: Record<DrawingWarning['kind'], string> = {
     <section class="card">
       <h2>À vérifier</h2>
       <ul>
-        @for (warning of warnings(); track warning.kind) {
+        @for (warning of warnings(); track $index) {
           <li>{{ text(warning) }}</li>
         } @empty {
           <li class="ok">Rien à signaler.</li>
@@ -62,6 +78,6 @@ export class DrawHelp {
   protected readonly warnings = this.facade.drawingWarnings;
 
   protected text(warning: DrawingWarning): string {
-    return WARNING_TEXT[warning.kind];
+    return warningText(warning, this.facade.settings()?.baseCellKm ?? 1);
   }
 }

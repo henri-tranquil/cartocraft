@@ -45,7 +45,7 @@ import {
 } from './tools/terrain-brush-tools';
 import { DrawingBrushOptions, DrawingBrushTool } from './tools/drawing-brush-tool';
 import { checkDrawing, DrawingWarning } from '../domain/drawing/drawing-checks';
-import { ReliefClass } from '../domain/drawing/drawing-cell';
+import { ForestKind, ReliefClass } from '../domain/drawing/drawing-cell';
 
 /** What the map shows: the editing relief view, or a climate field. */
 export type ViewMode = 'relief' | 'landscape' | 'temperature' | 'precipitation' | 'wind';
@@ -68,7 +68,9 @@ export type ToolId = 'pan' | 'raise' | 'lower' | 'smooth';
 export type Workspace = 'draw' | 'world';
 
 /** Tools of the Draw step. 'pan' moves the map. */
-export type DrawToolId = 'pan' | 'land' | 'sea' | ReliefClass;
+export type DrawToolId = 'pan' | 'land' | 'sea' | ReliefClass | ForestToolId;
+/** Forest brushes; `clearing` removes the trees. */
+export type ForestToolId = Exclude<ForestKind, 'none'> | 'clearing';
 
 export const DRAWING_BRUSH_LIMITS = { minRadiusKm: 1, maxRadiusKm: 300 } as const;
 
@@ -144,6 +146,10 @@ export class EditorFacade {
     hills: this.reliefTool('Peindre des collines', 'hills'),
     midMountain: this.reliefTool('Peindre la moyenne montagne', 'midMountain'),
     highMountain: this.reliefTool('Peindre la haute montagne', 'highMountain'),
+    broadleaf: this.forestTool('Planter des feuillus', 'broadleaf'),
+    conifer: this.forestTool('Planter des résineux', 'conifer'),
+    tropical: this.forestTool('Planter une forêt tropicale', 'tropical'),
+    clearing: this.forestTool('Défricher', 'none'),
   };
   private gestureTool: EditorTool | null = null;
   private holdTimer: ReturnType<typeof setInterval> | null = null;
@@ -225,7 +231,7 @@ export class EditorFacade {
   readonly drawingWarnings = computed<readonly DrawingWarning[]>(() => {
     this.historyRevision();
     const map = this.store.map();
-    return map ? checkDrawing(map.terrain.drawing) : [];
+    return map ? checkDrawing(map.terrain.drawing, map.settings) : [];
   });
   readonly undoLabel = computed(() => {
     this.historyRevision();
@@ -786,6 +792,10 @@ export class EditorFacade {
     return this.workspaceState() === 'draw' && id in this.drawTools
       ? this.drawTools[id as Exclude<DrawToolId, 'pan'>]
       : this.tools[id as Exclude<ToolId, 'pan'>];
+  }
+
+  private forestTool(label: string, forest: ForestKind): EditorTool {
+    return new DrawingBrushTool(label, { kind: 'forest', forest }, () => this.drawingBrushState());
   }
 
   private reliefTool(label: string, relief: ReliefClass): EditorTool {

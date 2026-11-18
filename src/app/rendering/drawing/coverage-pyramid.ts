@@ -1,4 +1,4 @@
-import { isLandCode, reliefIndexOf } from '../../domain/drawing/drawing-cell';
+import { forestIndexOf, isLandCode, reliefIndexOf } from '../../domain/drawing/drawing-cell';
 import { CellRect, getCellClamped, Int16TiledGrid } from '../../domain/terrain/tiled-grid';
 
 /** One level of the pyramid: texel (i, j) covers cells [i·2^k, (i+1)·2^k) × [j·2^k, (j+1)·2^k). */
@@ -18,6 +18,8 @@ export type CellValue = (code: number) => number;
 export const LAND_VALUE: CellValue = (code) => (isLandCode(code) ? 1 : 0);
 /** Relief class as 0 (plain or sea), ⅓, ⅔, 1 (high mountain): tints relief zones seen from afar. */
 export const RELIEF_VALUE: CellValue = (code) => reliefIndexOf(code) / 3;
+/** 1 where trees are painted: a green wash under forests, readable from afar. */
+export const FOREST_VALUE: CellValue = (code) => (forestIndexOf(code) !== 0 ? 1 : 0);
 
 /**
  * Mean of a drawing value (land by default) at every power-of-two scale (a "mipmap").

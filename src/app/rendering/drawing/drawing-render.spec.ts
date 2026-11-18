@@ -2,7 +2,7 @@ import { paintDrawing } from '../../domain/drawing/drawing-brush';
 import { DrawingPaint } from '../../domain/drawing/drawing-cell';
 import { createInt16TiledGrid } from '../../domain/terrain/tiled-grid';
 import { CoveragePyramid, RELIEF_VALUE } from './coverage-pyramid';
-import { placeReliefGlyphs } from './drawing-glyphs';
+import { placeReliefGlyphs, placeTreeGlyphs } from './drawing-glyphs';
 
 function drawn(paints: readonly [number, number, number, DrawingPaint][]) {
   const grid = createInt16TiledGrid(128, 128, 0, 64);
@@ -63,5 +63,24 @@ describe('placeReliefGlyphs', () => {
     // Some glyph straddles x = 160 and is listed by both tiles.
     const shared = left.filter((g) => right.some((h) => key(h) === key(g)));
     expect(shared.length).toBeGreaterThan(0);
+  });
+});
+
+describe('placeTreeGlyphs', () => {
+  it('plants trees in forests only, of the painted kind, and none under the snow', () => {
+    const grid = drawn([
+      [64, 64, 60, { kind: 'land' }],
+      [40, 64, 14, { kind: 'forest', forest: 'conifer' }],
+      [90, 64, 14, { kind: 'forest', forest: 'tropical' }],
+      [90, 64, 6, { kind: 'relief', relief: 'highMountain' }],
+    ]);
+    const trees = placeTreeGlyphs(grid, 7, 2, 0, 0, 512, 1);
+    expect(trees.filter((t) => t.forest === 2).length).toBeGreaterThan(50);
+    for (const t of trees) {
+      const cx = t.forest === 2 ? 40 : 90;
+      expect(Math.hypot(t.x / 4 - cx, t.y / 4 - 64)).toBeLessThan(15);
+      if (t.forest === 3) expect(Math.hypot(t.x / 4 - 90, t.y / 4 - 64)).toBeGreaterThan(5);
+    }
+    expect(trees.some((t) => t.forest === 1)).toBe(false);
   });
 });

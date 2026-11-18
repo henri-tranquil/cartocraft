@@ -1,8 +1,8 @@
 import { WorldMap } from '../../domain/map/world-map';
 import { CellRect } from '../../domain/terrain/tiled-grid';
 import { cellToScreen, screenToCell, Viewport } from '../viewport';
-import { CoveragePyramid, RELIEF_VALUE } from './coverage-pyramid';
-import { drawReliefGlyphs, glyphZoom, RELIEF_GLYPH_REACH_PX } from './drawing-glyphs';
+import { CoveragePyramid, FOREST_VALUE, RELIEF_VALUE } from './coverage-pyramid';
+import { drawDrawingGlyphs, glyphZoom, RELIEF_GLYPH_REACH_PX } from './drawing-glyphs';
 import { DRAWING_TILE_PX, DrawingTileKey, influenceCells, renderDrawingTile, tileCells } from './drawing-tile';
 
 interface CachedTile {
@@ -35,6 +35,7 @@ const MAX_LEVEL = 5;
 export class DrawingView {
   private readonly pyramid: CoveragePyramid;
   private readonly reliefPyramid: CoveragePyramid;
+  private readonly forestPyramid: CoveragePyramid;
   /** Device px per CSS px the cached tiles were drawn for (glyph sizes depend on it). */
   private pxScale = 1;
   private readonly cache = new Map<string, CachedTile>();
@@ -44,6 +45,7 @@ export class DrawingView {
   constructor(private readonly map: WorldMap) {
     this.pyramid = new CoveragePyramid(map.terrain.drawing);
     this.reliefPyramid = new CoveragePyramid(map.terrain.drawing, RELIEF_VALUE);
+    this.forestPyramid = new CoveragePyramid(map.terrain.drawing, FOREST_VALUE);
   }
 
   /** The drawing changed in these cell rectangles. */
@@ -51,6 +53,7 @@ export class DrawingView {
     for (const rect of rects) {
       this.pyramid.update(rect);
       this.reliefPyramid.update(rect);
+      this.forestPyramid.update(rect);
       for (const tile of this.cache.values()) {
         const reach = influenceCells(tile.key.level, this.pyramid.maxLevel, RELIEF_GLYPH_REACH_PX * this.glyphPxScale(tile.key.level));
         const size = tileCells(tile.key.level);
@@ -123,7 +126,7 @@ export class DrawingView {
     const grid = this.map.terrain.drawing;
     const seed = this.map.settings.seed;
     renderDrawingTile(
-      { pyramid: this.pyramid, reliefPyramid: this.reliefPyramid, widthCells: grid.widthCells, heightCells: grid.heightCells, seed },
+      { pyramid: this.pyramid, reliefPyramid: this.reliefPyramid, forestPyramid: this.forestPyramid, widthCells: grid.widthCells, heightCells: grid.heightCells, seed },
       key,
       this.pixels.data,
     );
@@ -142,7 +145,7 @@ export class DrawingView {
     tctx.beginPath();
     tctx.rect(0, 0, inside.w, inside.h);
     tctx.clip();
-    drawReliefGlyphs(tctx, grid, seed, key.level, key.tx * DRAWING_TILE_PX, key.ty * DRAWING_TILE_PX, DRAWING_TILE_PX, this.glyphPxScale(key.level));
+    drawDrawingGlyphs(tctx, grid, seed, key.level, key.tx * DRAWING_TILE_PX, key.ty * DRAWING_TILE_PX, DRAWING_TILE_PX, this.glyphPxScale(key.level));
     tctx.restore();
     tile.stale = false;
     this.cache.set(id(key), tile);

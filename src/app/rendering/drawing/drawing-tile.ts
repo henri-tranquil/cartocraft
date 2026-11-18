@@ -26,6 +26,9 @@ export const DRAWING_STYLE = {
   /** Relief wash: how far a high-mountain zone shifts the parchment towards `reliefWash`. */
   reliefWashStrength: 0.45,
   reliefWash: [196, 170, 120] as Rgb,
+  /** Forest wash: a pale green under the trees. */
+  forestWashStrength: 0.4,
+  forestWash: [160, 168, 112] as Rgb,
   /** Coast wiggle: noise amplitude (in land fraction) and period (in cells). Adds detail below the cell size. */
   coastNoise: 0.22,
   coastNoisePeriodCells: 3,
@@ -41,6 +44,7 @@ export interface DrawingTileContext {
   readonly pyramid: CoveragePyramid;
   /** Mean relief class (see RELIEF_VALUE): a light ochre wash on relief zones, readable from afar. */
   readonly reliefPyramid: CoveragePyramid;
+  readonly forestPyramid: CoveragePyramid;
   readonly widthCells: number;
   readonly heightCells: number;
   readonly seed: number;
@@ -107,6 +111,7 @@ export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, 
   const glows = new Float32Array(L * L);
   const edges = new Float32Array(L * L);
   const reliefs = new Float32Array(L * L);
+  const forests = new Float32Array(L * L);
   const reliefLevel = Math.max(0, Math.min(ctx.reliefPyramid.maxLevel, -key.level + 1));
   for (let b = 0; b < L; b++) {
     const y = (originY + 1 + b * LATTICE_STEP + 0.5) * cellsPerPx;
@@ -116,6 +121,7 @@ export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, 
       glows[b * L + a] = pyramid.sample(glow, x, y);
       edges[b * L + a] = pyramid.sample(edgeLevel, x, y);
       reliefs[b * L + a] = ctx.reliefPyramid.sample(reliefLevel, x, y);
+      forests[b * L + a] = ctx.forestPyramid.sample(reliefLevel, x, y);
     }
   }
 
@@ -126,6 +132,7 @@ export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, 
   const [parR, parG, parB] = VINTAGE.parchment;
   const [edgR, edgG, edgB] = VINTAGE.parchmentEdge;
   const [relR, relG, relB] = DRAWING_STYLE.reliefWash;
+  const [forR, forG, forB] = DRAWING_STYLE.forestWash;
   const [inkR, inkG, inkB] = DRAWING_STYLE.ink;
   for (let j = 0; j < N; j++) {
     const py = originY + j + 1;
@@ -162,9 +169,10 @@ export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, 
         const t = (1 - smoothstep(0.55, 1, bilerp(edges, k, L, fx, fy))) * 0.55;
         const shade = 1 + (stain - 0.5) * 2 * VINTAGE.landStainStrength;
         const u = bilerp(reliefs, k, L, fx, fy) * DRAWING_STYLE.reliefWashStrength;
-        r = (parR + (relR - parR) * u + (edgR - parR) * t) * shade;
-        g = (parG + (relG - parG) * u + (edgG - parG) * t) * shade;
-        b = (parB + (relB - parB) * u + (edgB - parB) * t) * shade;
+        const f = bilerp(forests, k, L, fx, fy) * DRAWING_STYLE.forestWashStrength;
+        r = (parR + (relR - parR) * u + (forR - parR) * f + (edgR - parR) * t) * shade;
+        g = (parG + (relG - parG) * u + (forG - parG) * f + (edgG - parG) * t) * shade;
+        b = (parB + (relB - parB) * u + (forB - parB) * f + (edgB - parB) * t) * shade;
       } else {
         const s = smoothstep(0.25, 0.75, stain);
         r = deepR + (openR - deepR) * s;

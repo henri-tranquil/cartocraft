@@ -93,12 +93,38 @@ export const DRAW_GROUPS: readonly DrawToolGroup[] = [
   {
     step: 3,
     title: 'Forêts',
-    soon: 'prochaine étape',
     tools: [
-      { id: null, icon: 'broadleaf', label: 'Feuillus', description: 'Forêts tempérées.' },
-      { id: null, icon: 'conifer', label: 'Résineux', description: 'Forêts froides ou d’altitude.' },
-      { id: null, icon: 'tropical', label: 'Tropicale', description: 'Forêt dense des climats chauds et humides.' },
-      { id: null, icon: 'clearing', label: 'Défricher', description: 'Enlève les arbres.' },
+      {
+        id: 'broadleaf',
+        icon: 'broadleaf',
+        label: 'Feuillus',
+        key: '5',
+        description: 'Forêts tempérées : chênes, hêtres, châtaigniers.',
+        hint: 'Plausibles entre ~12° et 62° de latitude. Se peignent par-dessus le relief : des bois sur les collines, c’est très bien.',
+      },
+      {
+        id: 'conifer',
+        icon: 'conifer',
+        label: 'Résineux',
+        key: '6',
+        description: 'Forêts froides ou d’altitude : sapins, épicéas, pins.',
+        hint: 'Jusqu’à ~70° de latitude. Sous les tropiques, seulement en montagne (plus fraîche).',
+      },
+      {
+        id: 'tropical',
+        icon: 'tropical',
+        label: 'Tropicale',
+        key: '7',
+        description: 'Forêt dense des climats chauds et humides.',
+        hint: 'Plausible entre les tropiques, jusqu’à ~28° de latitude.',
+      },
+      {
+        id: 'clearing',
+        icon: 'clearing',
+        label: 'Défricher',
+        key: '8',
+        description: 'Enlève les arbres, sans toucher au relief.',
+      },
     ],
   },
   {
