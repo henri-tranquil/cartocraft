@@ -51,6 +51,8 @@ function sameTemplate(a: FeatureTemplate, b: FeatureTemplate): boolean {
   imports: [Icon],
   template: `
     <p class="hint">
+      Comment faire
+      <span class="cc-info" tabindex="0" aria-label="Explication">i<span class="cc-info-tip" role="tooltip">
       @switch (newGeometry()) {
         @case ('zone') {
           Glissez sur la carte pour dessiner le contour de la zone (clic droit : déplacer la carte). Son nom n’apparaît que s’il y tient : zoomez pour les petites zones.
@@ -69,6 +71,7 @@ function sameTemplate(a: FeatureTemplate, b: FeatureTemplate): boolean {
           Cliquez sur la carte pour poser un lieu, glissez un nom pour le déplacer. Plus on zoome, plus les petits lieux apparaissent.
         }
       }
+      </span></span>
     </p>
     <div class="templates" role="radiogroup" aria-label="Type du prochain lieu">
       @for (def of templates; track def.short) {
@@ -149,7 +152,7 @@ function sameTemplate(a: FeatureTemplate, b: FeatureTemplate): boolean {
     }
   `,
   styles: `
-    :host { display: flex; flex-direction: column; gap: 12px; }
+    :host { position: relative; display: flex; flex-direction: column; gap: 12px; }
     .hint { margin: 0; font-size: 12px; color: var(--cc-muted); }
     .templates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
     .templates .cc-btn { height: 46px; flex-direction: column; gap: 3px; }

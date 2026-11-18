@@ -199,3 +199,20 @@ input[type='range'] {
   line-height: 1;
   letter-spacing: 0.2px;
 }
+
+/*
+ * Small "i" next to a title: the explanation shows on hover or keyboard focus, so the panels stay
+ * short. The tip spans the nearest positioned ancestor (a panel card): never clipped sideways.
+ */
+.cc-info {
+  display: inline-grid; place-items: center; width: 15px; height: 15px; margin-left: 5px; vertical-align: 1px;
+  border: 1.5px solid var(--cc-muted); border-radius: 50%; color: var(--cc-muted); cursor: help;
+  font: italic 700 10px/1 Georgia, serif; text-transform: none; letter-spacing: 0;
+}
+.cc-info:hover, .cc-info:focus-visible { border-color: var(--cc-ink); color: var(--cc-ink); outline: none; }
+.cc-info-tip {
+  display: none; position: absolute; left: 8px; right: 8px; z-index: 30; margin-top: 18px; padding: 8px 10px;
+  background: var(--cc-ink); color: var(--cc-panel); border-radius: 6px; box-shadow: 0 3px 8px rgb(0 0 0 / 0.25);
+  font: 500 12px/1.45 var(--cc-font-ui); font-style: normal; text-transform: none; letter-spacing: 0; text-align: left;
+}
+.cc-info:hover .cc-info-tip, .cc-info:focus .cc-info-tip { display: block; }

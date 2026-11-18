@@ -26,16 +26,13 @@ function warningText(warning: DrawingWarning): string {
   imports: [LatitudePanel, NamesPanel],
   template: `
     <section class="card">
-      <h2>Outil</h2>
+      <h2>Outil @if (tool().hint) {<span class="cc-info" tabindex="0" aria-label="Explication">i<span class="cc-info-tip" role="tooltip">{{ tool().hint }}</span></span>}</h2>
       <p class="name">{{ tool().label }}</p>
       <p>{{ tool().description }}</p>
-      @if (tool().hint) {
-        <p class="hint">{{ tool().hint }}</p>
-      }
     </section>
     @if (facade.drawTool() === 'volcano') {
       <section class="card">
-        <h2>Type de volcan</h2>
+        <h2>Type de volcan <span class="cc-info" tabindex="0" aria-label="Explication">i<span class="cc-info-tip" role="tooltip">Clique sur un volcan déjà posé pour lui donner ce type.</span></span></h2>
         <div class="kinds" role="radiogroup" aria-label="Type de volcan">
           @for (kind of volcanoKinds; track kind.id) {
             <button type="button" role="radio" class="kind" [attr.aria-checked]="facade.volcanoKind() === kind.id" (click)="facade.setVolcanoKind(kind.id)">
@@ -44,7 +41,6 @@ function warningText(warning: DrawingWarning): string {
             </button>
           }
         </div>
-        <p class="hint">Clique sur un volcan déjà posé pour lui donner ce type.</p>
       </section>
     }
     @if (facade.drawTool() === 'names') {
@@ -54,25 +50,23 @@ function warningText(warning: DrawingWarning): string {
       </section>
     }
     <section class="card">
-      <h2>Mois</h2>
+      <h2>Mois <span class="cc-info" tabindex="0" aria-label="Explication">i<span class="cc-info-tip" role="tooltip">La neige (au sol et sur les pictos) et la température sous le curseur suivent le mois choisi.</span></span></h2>
       <label class="month">
         <input type="range" min="0" max="11" step="1" aria-label="Mois affiché" [value]="month()" (input)="setMonth($event)" />
         <output>{{ monthName() }}</output>
       </label>
-      <p class="hint">La neige (au sol et sur les pictos) et la température sous le curseur suivent le mois choisi.</p>
       @if ((facade.settings()?.axialTiltDeg ?? 23) < 3) {
-        <p class="hint warn">Inclinaison de l’axe ≈ {{ facade.settings()?.axialTiltDeg }}° : presque pas de saisons, tous les mois se ressemblent. Règle-la dans le bloc Latitudes (Terre : 23,4°).</p>
+        <p class="hint warn">Inclinaison ≈ {{ facade.settings()?.axialTiltDeg }}° : pas de saisons (voir Latitudes).</p>
       }
     </section>
     <section class="card">
-      <h2>Surcouche</h2>
+      <h2>Surcouche <span class="cc-info" tabindex="0" aria-label="Explication">i<span class="cc-info-tip" role="tooltip">Couleur = température de l’air, qui garde celle d’où il vient. Trait épais = air humide (chargé au-dessus de la mer, des lacs et des forêts). Voile violet = front : l’air chaud y passe sur l’air froid, il y pleut (ou neige) davantage. Les montagnes dévient l’air ; l’humidité les franchit en partie. Les vents font la couleur du sol : vert là où il pleut, ocre à l’abri des montagnes et loin de la mer.</span></span></h2>
       <button type="button" class="kind toggle" [attr.aria-pressed]="facade.windOverlayShown()" (click)="facade.setWindOverlayShown(!facade.windOverlayShown())">
         <b>Vents</b>
-        <span>{{ facade.windOverlayShown() ? 'Affichés : clique pour les masquer.' : 'Calculés tout seuls d’après les latitudes et le relief.' }}</span>
+        <span>{{ facade.windOverlayShown() ? 'Affichés' : 'Masqués' }}</span>
       </button>
       @if (facade.windOverlayShown()) {
         <div class="legend" aria-hidden="true"><i class="scale"></i><span>−15 °C</span><span>0</span><span>15</span><span>30 °C</span></div>
-        <p class="hint">Couleur = température de l’air, qui garde celle d’où il vient. Trait épais = air humide (chargé au-dessus de la mer, des lacs et des forêts). Voile violet = front : l’air chaud y passe sur l’air froid, il y pleut (ou neige) davantage. L’air froid longe les reliefs ; l’air chaud passe les collines. Les vents font la couleur du sol : vert là où il pleut (côtes au vent, versants exposés), ocre à l’abri des montagnes et loin de la mer.</p>
       }
     </section>
     <section class="card">
@@ -85,7 +79,7 @@ function warningText(warning: DrawingWarning): string {
         }
       </ul>
     </section>
-    <cc-latitude-panel class="card" title="La couleur du sol vient des vents, eux-mêmes réglés par la latitude : ocre vers les déserts (20–30°) et à l’abri des montagnes, vert sur les côtes au vent, pâle là où l’été est froid (grand nord, haute montagne)." />
+    <cc-latitude-panel class="card" />
     <section class="card">
       <h2>Raccourcis</h2>
       <dl>
@@ -98,7 +92,7 @@ function warningText(warning: DrawingWarning): string {
   `,
   styles: `
     :host { display: flex; flex-direction: column; gap: 12px; }
-    .card { padding: 12px; background: var(--cc-panel); border: var(--cc-border) solid var(--cc-ink); border-radius: var(--cc-radius-soft); }
+    .card { position: relative; padding: 12px; background: var(--cc-panel); border: var(--cc-border) solid var(--cc-ink); border-radius: var(--cc-radius-soft); }
     h2 { margin: 0 0 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--cc-muted); }
     p { margin: 0 0 6px; line-height: 1.45; }
     .name { font-family: var(--cc-font-map); font-size: 20px; }

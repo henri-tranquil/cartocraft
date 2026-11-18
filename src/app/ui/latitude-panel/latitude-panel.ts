@@ -11,7 +11,9 @@ import { Icon } from '../icon/icon';
   imports: [DecimalPipe, Icon],
   template: `
     <div class="lat-head">
-      <span class="head"><cc-icon name="compass" [size]="13" [strokeWidth]="2.4" /> Latitudes</span>
+      <span class="head"
+        ><cc-icon name="compass" [size]="13" [strokeWidth]="2.4" /> Latitudes<span class="cc-info" tabindex="0" aria-label="Explication">i<span class="cc-info-tip" role="tooltip">La couleur du sol vient des vents, eux-mêmes réglés par la latitude. « Régler » : glisse les deux repères sur la carte et donne leur latitude (négatif = sud) ; glisse un tropique ou un cercle polaire pour l’inclinaison ; glisse la règle (ou molette dessus) pour tout décaler.</span></span></span
+      >
       <button
         type="button"
         class="cc-btn shape-galet small-btn"
@@ -23,7 +25,6 @@ import { Icon } from '../icon/icon';
       </button>
     </div>
     @if (facade.latitudePins(); as pins) {
-      <p class="hint">Glisse les deux repères sur la carte et donne leur latitude (négatif = sud). Glisse un tropique ou un cercle polaire pour régler l’inclinaison.</p>
       @for (pin of pins; track $index) {
         <label class="pin-row">
           <span class="pin-tag">Repère {{ $index + 1 }}</span>
@@ -50,7 +51,7 @@ import { Icon } from '../icon/icon';
     }
   `,
   styles: `
-    :host { padding: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 11px; font-weight: 600; }
+    :host { position: relative; padding: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 11px; font-weight: 600; }
     .lat-head { display: flex; align-items: center; justify-content: space-between; }
     .head { display: flex; align-items: center; gap: 5px; }
     .small-btn { height: 24px; padding: 0 10px; --cc-shadow: 2px; }
