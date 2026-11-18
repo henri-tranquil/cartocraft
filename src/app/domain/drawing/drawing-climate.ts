@@ -125,9 +125,13 @@ export function zonalGroundClimate(rows: ZonalRows): GroundClimate {
  */
 export const SNOW_COVER_C = { full: -3, none: 1 } as const;
 
-/** Chance of snow cover for a ground temperature of the month (°C). */
-export function snowCoverChance(groundMonthC: number): number {
-  return 1 - ramp(SNOW_COVER_C.full, SNOW_COVER_C.none, groundMonthC);
+/**
+ * Chance of snow cover for a ground temperature of the month (°C). Cold is
+ * not enough: snow has to fall. Dry places (cold deserts, rain shadows) get a
+ * thin, patchy cover: down to 35 % of the chance below 10 % wetness.
+ */
+export function snowCoverChance(groundMonthC: number, wetnessPct = 50): number {
+  return (1 - ramp(SNOW_COVER_C.full, SNOW_COVER_C.none, groundMonthC)) * (0.35 + 0.65 * ramp(10, 35, wetnessPct));
 }
 
 /**
@@ -138,7 +142,7 @@ export function snowCoverChance(groundMonthC: number): number {
  */
 export function glyphSnowChance(climate: GroundClimate, xCell: number, yCell: number, reliefIndex: number, cap: boolean): number {
   const month = climate.monthC(xCell, yCell);
-  const cover = snowCoverChance(month - reliefClassAltitudeM(reliefIndex) * LAPSE_RATE_C_PER_M);
+  const cover = snowCoverChance(month - reliefClassAltitudeM(reliefIndex) * LAPSE_RATE_C_PER_M, climate.wetnessPct(xCell, yCell));
   if (!cap) return cover;
   const summit = snowCoverChance(month - RELIEF_SUMMIT_M[Math.min(3, reliefIndex)] * LAPSE_RATE_C_PER_M);
   return Math.max(cover, summit, snowCapChance(climate.warmestC(xCell, yCell), reliefIndex));

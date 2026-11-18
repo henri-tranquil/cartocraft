@@ -1,6 +1,6 @@
 import { DrawnRiver, riverFlowsKm } from '../../domain/drawing/drawn-river';
 import { drawRiverMagnet, drawRiverPreview } from '../../rendering/drawing/drawn-river-layer';
-import { drawWindFlows } from '../../rendering/drawing/wind-flow-layer';
+import { drawFronts, drawWindFlows } from '../../rendering/drawing/wind-flow-layer';
 import {
   afterNextRender,
   ChangeDetectionStrategy,
@@ -507,6 +507,8 @@ export class MapCanvas {
     this.drawingView.view.setWeather(this.facade.drawingWeather(), this.facade.drawingMonthPhase());
     const pending = this.drawingView.view.draw(ctx, vp, dpr);
     const winds = this.facade.windsVisible();
+    const weather = this.facade.drawingWeather();
+    if (winds && weather) drawFronts(ctx, vp, map.settings.baseCellKm, weather);
     if (winds) drawWindFlows(ctx, vp, map.settings.baseCellKm, this.facade.windFlows(), performance.now() / 1000);
     drawRiverPreview(ctx, vp, this.facade.riverPreview(), map.settings.baseCellKm);
     const hover = this.hover();

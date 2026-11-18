@@ -68,6 +68,17 @@ const RAIN_EFFICIENCY: readonly (readonly [number, number])[] = [
  */
 const TEMPERATURE_SWEEPS = 12;
 const MOISTURE_SWEEPS = 24;
+/** Contrast of the air masses' temperature (°C per 100 km, anomaly) from which a front starts, and where it is full. */
+const FRONT_GRADIENT_C_PER_100KM = { from: 2, to: 5 } as const;
+/** On a full front: rain efficiency at least this, and rain multiplied by 1 + this boost. */
+const FRONT_EFFICIENCY = 0.9;
+const FRONT_BOOST = 1.5;
+/**
+ * Seasons of the winds: the air masses' warmth or cold (the anomaly) is
+ * stronger in winter (polar air colder, the westerlies' wave deeper) and
+ * weaker in summer: anomaly × (1 + this) mid-winter, × (1 − this) mid-summer.
+ */
+export const WINTER_ANOMALY_SWING = 0.5;
 /** Land share within about this distance sets the continentality. */
 const CONTINENTAL_RADIUS_KM = 250;
 /** Bare land (grass, fields) gives back a little water too. */
@@ -96,6 +107,8 @@ export interface DrawingWeather {
   readonly warmestTempC: Float32Array;
   /** Coldest month at sea level (°C). */
   readonly coldestTempC: Float32Array;
+  /** 0 … 1: how strong a front lies here (cold and warm air masses meeting): extra rain or snow. */
+  readonly frontiness: Float32Array;
   /** 0 (open sea, coast) … 1 (deep inland): how far the seasons swing like a continent's. */
   readonly continentality: Float32Array;
   /** Per row × 12 months: departure from the annual mean deep inland and over the sea (°C), as in the air field. */
@@ -164,6 +177,23 @@ export function drawingWeather(field: DrawingAirField): DrawingWeather {
   winds(temp);
   advectTemperature();
 
+  // 2b. FRONTS: where an air mass carried from far away (a tongue of cold or warm air) borders
+  // another, the temperature changes sharply over a short distance. There the warm, light air
+  // is pushed up over the cold, dense air: it cools and rains (or snows). The sharper the
+  // contrast, the stronger the front. Measured on the anomaly (air minus local zonal
+  // temperature), so the ordinary north–south gradient of the climate is not a front.
+  const front = new Float32Array(n);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const ax = (temp[y * w + Math.min(w - 1, x + 1)] - localT[y * w + Math.min(w - 1, x + 1)]) - (temp[y * w + Math.max(0, x - 1)] - localT[y * w + Math.max(0, x - 1)]);
+      const ay = (temp[Math.min(h - 1, y + 1) * w + x] - localT[Math.min(h - 1, y + 1) * w + x]) - (temp[Math.max(0, y - 1) * w + x] - localT[Math.max(0, y - 1) * w + x]);
+      const per100Km = (Math.hypot(ax, ay) / (2 * km)) * 100;
+      front[i] = smoothstep(FRONT_GRADIENT_C_PER_100KM.from, FRONT_GRADIENT_C_PER_100KM.to, per100Km);
+    }
+  }
+  const frontiness = blur3(front, w, h);
+
   // 3. Water and rain. The moist air is carried as WARM air, mostly over the relief: near the
   // ground cold air is dammed by a range, but the moist air above it is lifted over the
   // crest (this lift is what makes it rain on the windward side).
@@ -195,7 +225,8 @@ export function drawingWeather(field: DrawingAirField): DrawingWeather {
     target[i] = MOISTENED_SHARE * capacityMm(temp[i]);
     uptake[i] = Math.min(1, sea * (km / WATER_MOISTENING_KM) + forest * (km / FOREST_MOISTENING_KM) + bare * (km / LAND_MOISTENING_KM));
     aloft[i] = capacityMm(temp[i] - altitudeM[i] * LAPSE_RATE_C_PER_M);
-    rainRate[i] = efficiency[Math.floor(i / w)] * (km / RAIN_OUT_KM);
+    // Fronts make the air rise wherever they are, even where the general circulation makes it sink.
+    rainRate[i] = Math.max(efficiency[Math.floor(i / w)], FRONT_EFFICIENCY * frontiness[i]) * (km / RAIN_OUT_KM) * (1 + FRONT_BOOST * frontiness[i]);
   }
   sweep(w, h, MOISTURE_SWEEPS, (x, y, i) => {
     // In a calm belt nothing blows: the air mixes with its neighbours.
@@ -261,6 +292,7 @@ export function drawingWeather(field: DrawingAirField): DrawingWeather {
     warmestTempC,
     coldestTempC,
     continentality,
+    frontiness,
     rowLandDevC: field.rowLandDevC,
     rowSeaDevC: field.rowSeaDevC,
   };
@@ -282,7 +314,23 @@ export function weatherMonthTempC(weather: DrawingWeather, xKm: number, yKm: num
   const m1 = (m0 + 1) % 12;
   const f = t - m0;
   const dev = (m: number) => weather.rowSeaDevC[row * 12 + m] + c * (weather.rowLandDevC[row * 12 + m] - weather.rowSeaDevC[row * 12 + m]);
-  return mean + dev(m0) + (dev(m1) - dev(m0)) * f;
+  const anomaly = sampleWeather(weather, weather.tempAnomalyC, xKm, yKm);
+  return mean + dev(m0) + (dev(m1) - dev(m0)) * f + anomaly * WINTER_ANOMALY_SWING * winterness(weather, row, yearPhase);
+}
+
+/**
+ * +1 in mid-winter, −1 in mid-summer, at this row: read from the sea's
+ * seasonal departure (it follows the sun of the right hemisphere, with the
+ * sea's lag), normalised by its amplitude.
+ */
+function winterness(weather: DrawingWeather, row: number, yearPhase: number): number {
+  let amplitude = 0;
+  for (let m = 0; m < 12; m++) amplitude = Math.max(amplitude, Math.abs(weather.rowSeaDevC[row * 12 + m]));
+  if (amplitude < 0.5) return 0; // no seasons (equator, or no axial tilt)
+  const t = (((yearPhase * 12 - 0.5) % 12) + 12) % 12;
+  const m0 = Math.floor(t);
+  const dev = weather.rowSeaDevC[row * 12 + m0] + (weather.rowSeaDevC[row * 12 + ((m0 + 1) % 12)] - weather.rowSeaDevC[row * 12 + m0]) * (t - m0);
+  return Math.max(-1, Math.min(1, -dev / amplitude));
 }
 
 /** Ground climate from the weather: its wetness, its warmest month, and the month shown, with the winds and the continentality. */

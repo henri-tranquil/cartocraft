@@ -73,4 +73,17 @@ describe('drawing weather', () => {
     const dry = checkDrawing(g, desert, [], drawingWeather(drawingAirField(g, 1, desert)));
     expect(dry).toContainEqual(expect.objectContaining({ kind: 'forestTooDry', forest: 'broadleaf' }));
   });
+
+  it('puts fronts where a warm and a cold air mass meet, with more rain there', () => {
+    // Sea to the west, wide continent: warm air rises east of the trough, cold air dives west of it.
+    const g = createInt16TiledGrid(1500, 1500, PLAIN, 256);
+    for (let y = 0; y < 1500; y++) for (let x = 0; x < 200; x++) setCell(g, x, y, SEA_CELL);
+    const w = drawingWeather(drawingAirField(g, 1, { ...DEFAULT_MAP_SETTINGS, latitudeTopDeg: 65, latitudeBottomDeg: 30 }));
+    let fronts = 0;
+    for (const f of w.frontiness) if (f > 0.5) fronts++;
+    expect(fronts).toBeGreaterThan(0);
+    expect(fronts).toBeLessThan(0.25 * w.frontiness.length);
+    const flat = weather(48, 42, () => PLAIN);
+    expect(Math.max(...flat.frontiness)).toBeLessThan(0.5);
+  });
 });

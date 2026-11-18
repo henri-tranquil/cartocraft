@@ -1,4 +1,5 @@
 import { AirStreamline } from '../../domain/drawing/drawing-winds';
+import { DrawingWeather } from '../../domain/drawing/drawing-weather';
 import { cellToScreen, screenToCell, Viewport } from '../viewport';
 
 /**
@@ -129,4 +130,32 @@ function colour(tempC: number, alpha: number): string {
   const t = Math.min(1, Math.max(0, (tempC - t0) / (t1 - t0)));
   const mix = (a: number, b: number) => Math.round(a + (b - a) * t);
   return `rgb(${mix(r0, r1)} ${mix(g0, g1)} ${mix(b0, b1)} / ${alpha.toFixed(3)})`;
+}
+
+/** Fronts: a violet veil where air masses meet (as on weather maps, where fronts are drawn in colour). */
+const FRONT_COLOUR = [128, 64, 170] as const;
+const FRONT_MAX_ALPHA = 0.35;
+let frontCache: { weather: DrawingWeather; canvas: HTMLCanvasElement } | null = null;
+
+export function drawFronts(ctx: CanvasRenderingContext2D, vp: Viewport, cellKm: number, weather: DrawingWeather): void {
+  if (frontCache?.weather !== weather) {
+    const canvas = document.createElement('canvas');
+    canvas.width = weather.widthCells;
+    canvas.height = weather.heightCells;
+    const image = new ImageData(weather.widthCells, weather.heightCells);
+    for (let i = 0; i < weather.frontiness.length; i++) {
+      image.data[4 * i] = FRONT_COLOUR[0];
+      image.data[4 * i + 1] = FRONT_COLOUR[1];
+      image.data[4 * i + 2] = FRONT_COLOUR[2];
+      image.data[4 * i + 3] = Math.round(255 * FRONT_MAX_ALPHA * weather.frontiness[i]);
+    }
+    canvas.getContext('2d')?.putImageData(image, 0, 0);
+    frontCache = { weather, canvas };
+  }
+  const topLeft = cellToScreen(vp, 0, 0);
+  const sizeCells = weather.cellKm / cellKm;
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(frontCache.canvas, topLeft.x, topLeft.y, weather.widthCells * sizeCells * vp.pixelsPerCell, weather.heightCells * sizeCells * vp.pixelsPerCell);
+  ctx.restore();
 }

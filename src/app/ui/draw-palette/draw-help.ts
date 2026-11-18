@@ -86,7 +86,7 @@ function formatArea(km2: number): string {
       </button>
       @if (facade.windOverlayShown()) {
         <div class="legend" aria-hidden="true"><i class="scale"></i><span>−15 °C</span><span>0</span><span>15</span><span>30 °C</span></div>
-        <p class="hint">Couleur = température de l’air, qui garde celle d’où il vient. Trait épais = air humide (chargé au-dessus de la mer, des lacs et des forêts). L’air froid longe les reliefs ; l’air chaud passe les collines. Les vents font la couleur du sol : vert là où il pleut (côtes au vent, versants exposés), ocre à l’abri des montagnes et loin de la mer.</p>
+        <p class="hint">Couleur = température de l’air, qui garde celle d’où il vient. Trait épais = air humide (chargé au-dessus de la mer, des lacs et des forêts). Voile violet = front : l’air chaud y passe sur l’air froid, il y pleut (ou neige) davantage. L’air froid longe les reliefs ; l’air chaud passe les collines. Les vents font la couleur du sol : vert là où il pleut (côtes au vent, versants exposés), ocre à l’abri des montagnes et loin de la mer.</p>
       }
     </section>
     <section class="card">

@@ -158,7 +158,7 @@ export function renderDrawingTile(ctx: DrawingTileContext, key: DrawingTileKey, 
       // Same wash as the rendered view: dry → wet, pale where summers are cold (high or far north).
       wets[b * L + a] = smoothstep(VINTAGE.washDryPct, VINTAGE.washWetPct, climate.wetnessPct(x, y));
       colds[b * L + a] = 1 - smoothstep(VINTAGE.washColdC, VINTAGE.washMildC, climate.warmestC(x, y) - reliefCoolingC(reliefs[b * L + a]));
-      snows[b * L + a] = snowCoverChance(climate.monthC(x, y) - reliefCoolingC(reliefs[b * L + a]));
+      snows[b * L + a] = snowCoverChance(climate.monthC(x, y) - reliefCoolingC(reliefs[b * L + a]), climate.wetnessPct(x, y));
     }
   }
 
