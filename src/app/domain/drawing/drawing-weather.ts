@@ -94,6 +94,8 @@ export interface DrawingWeather {
   /** Air temperature at sea level (°C): annual mean, and warmest month. */
   readonly meanTempC: Float32Array;
   readonly warmestTempC: Float32Array;
+  /** Coldest month at sea level (°C). */
+  readonly coldestTempC: Float32Array;
   /** 0 (open sea, coast) … 1 (deep inland): how far the seasons swing like a continent's. */
   readonly continentality: Float32Array;
   /** Per row × 12 months: departure from the annual mean deep inland and over the sea (°C), as in the air field. */
@@ -226,6 +228,7 @@ export function drawingWeather(field: DrawingAirField): DrawingWeather {
   const tempAnomalyC = new Float32Array(n);
   const meanTempC = new Float32Array(n);
   const warmestTempC = new Float32Array(n);
+  const coldestTempC = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const p = (smoothRain[i] / km) * AIR_KM_PER_DAY * 365;
     const t = temp[i] - altitudeM[i] * LAPSE_RATE_C_PER_M;
@@ -233,9 +236,11 @@ export function drawingWeather(field: DrawingAirField): DrawingWeather {
     const row = Math.floor(i / w);
     let pet = 0;
     let warmestDev = -Infinity;
+    let coldestDev = Infinity;
     for (let m = 0; m < 12; m++) {
       const dev = field.rowSeaDevC[row * 12 + m] + continentality[i] * (field.rowLandDevC[row * 12 + m] - field.rowSeaDevC[row * 12 + m]);
       warmestDev = Math.max(warmestDev, dev);
+      coldestDev = Math.min(coldestDev, dev);
       pet += Math.max(0, 10 + 4.6 * (t + dev));
     }
     precipitationMm[i] = p;
@@ -243,6 +248,7 @@ export function drawingWeather(field: DrawingAirField): DrawingWeather {
     tempAnomalyC[i] = temp[i] - localT[i];
     meanTempC[i] = temp[i];
     warmestTempC[i] = temp[i] + warmestDev;
+    coldestTempC[i] = temp[i] + coldestDev;
   }
   return {
     widthCells: w,
@@ -253,6 +259,7 @@ export function drawingWeather(field: DrawingAirField): DrawingWeather {
     tempAnomalyC,
     meanTempC,
     warmestTempC,
+    coldestTempC,
     continentality,
     rowLandDevC: field.rowLandDevC,
     rowSeaDevC: field.rowSeaDevC,

@@ -19,10 +19,11 @@ function warningText(warning: DrawingWarning, cellKm: number): string {
         ? 'Un fleuve s’arrête dans les terres : prolonge-le jusqu’à la mer, un lac ou un autre fleuve.'
         : `${warning.count} fleuves s’arrêtent dans les terres : prolonge-les jusqu’à la mer, un lac ou un autre fleuve.`;
     case 'forestTooCold':
-    case 'forestTooWarm': {
+    case 'forestTooWarm':
+    case 'forestTooDry': {
       const name = FOREST_NAME[warning.forest];
       const where = `vers ${Math.round(Math.abs(warning.latitudeDeg))}° ${warning.latitudeDeg >= 0 ? 'N' : 'S'}`;
-      const why = warning.kind === 'forestTooCold' ? 'trop froid pour ces arbres' : 'trop chaud en plaine pour ces arbres';
+      const why = { forestTooCold: 'trop froid pour ces arbres', forestTooWarm: 'trop chaud pour ces arbres', forestTooDry: 'trop sec pour une forêt' }[warning.kind];
       return `${name} ${where} : ${why} (~${formatArea(warning.cells * cellKm * cellKm)}).`;
     }
   }
@@ -73,6 +74,9 @@ function formatArea(km2: number): string {
         <output>{{ monthName() }}</output>
       </label>
       <p class="hint">La neige (au sol et sur les pictos) et la température sous le curseur suivent le mois choisi.</p>
+      @if ((facade.settings()?.axialTiltDeg ?? 23) < 3) {
+        <p class="hint warn">Inclinaison de l’axe ≈ {{ facade.settings()?.axialTiltDeg }}° : presque pas de saisons, tous les mois se ressemblent. Règle-la dans le bloc Latitudes (Terre : 23,4°).</p>
+      }
     </section>
     <section class="card">
       <h2>Surcouche</h2>
@@ -131,6 +135,7 @@ function formatArea(km2: number): string {
     .month { display: grid; grid-template-columns: 1fr 76px; align-items: center; gap: 8px; }
     .month input { width: 100%; margin: 0; }
     .month output { font-weight: 600; text-align: right; }
+    .warn { color: var(--cc-ink); background: var(--cc-warn-bg); padding: 4px 6px; border-radius: 4px; }
     .toggle { width: 100%; }
     .toggle[aria-pressed='true'] { background: var(--cc-active); color: var(--cc-active-fg); border-color: var(--cc-ink); }
     .toggle[aria-pressed='true'] span { color: inherit; opacity: 0.85; }

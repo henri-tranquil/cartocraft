@@ -345,7 +345,7 @@ export class EditorFacade {
   readonly drawingWarnings = computed<readonly DrawingWarning[]>(() => {
     this.historyRevision();
     const map = this.store.map();
-    return map ? checkDrawing(map.terrain.drawing, map.settings, map.rivers) : [];
+    return map ? checkDrawing(map.terrain.drawing, map.settings, map.rivers, this.drawingWeather()) : [];
   });
   readonly undoLabel = computed(() => {
     this.historyRevision();
