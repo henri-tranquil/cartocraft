@@ -37,6 +37,9 @@ import { Icon } from '../icon/icon';
         <span>°</span>
       </label>
       <div class="presets">
+        <button type="button" class="cc-btn shape-galet small-btn" title="Remettre les deux repères au quart et aux trois quarts de la carte (les latitudes ne changent pas)" (click)="facade.startLatitudeEditing()">
+          <span class="cc-caption">Replacer les repères</span>
+        </button>
         <button type="button" class="cc-btn shape-galet small-btn" title="Remettre l’inclinaison de la Terre (23,4°)" (click)="facade.updateClimateSettings({ axialTiltDeg: 23.44 })">
           <span class="cc-caption">Terre</span>
         </button>
@@ -56,7 +59,7 @@ import { Icon } from '../icon/icon';
     .pin-tag { flex: 1; }
     .pin-row .cc-input { width: 64px; }
     .lat-range { margin: 0; }
-    .presets { display: flex; justify-content: flex-end; }
+    .presets { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
     .muted { color: var(--cc-muted); font-weight: 500; }
   `,
 })
